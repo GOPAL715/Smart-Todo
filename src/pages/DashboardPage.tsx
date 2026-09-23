@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
@@ -14,6 +14,7 @@ export function DashboardPage() {
   const { profile, user } = useAuth();
   const userTimezone = useUserTimezone();
   const queryClient = useQueryClient();
+  const [taskError, setTaskError] = useState("");
 
   const { data: todayTasks = [] } = useQuery({ queryKey: ["tasks", "today", userTimezone], queryFn: () => getTodayTasks(userTimezone) });
   const { data: upcomingTasks = [] } = useQuery({ queryKey: ["tasks", "upcoming"], queryFn: getUpcomingTasks });
@@ -46,6 +47,9 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
+    onError: () => {
+      setTaskError("Could not start task. Please try again.");
+    },
   });
 
   const completeMutation = useMutation({
@@ -53,12 +57,18 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
+    onError: () => {
+      setTaskError("Could not complete task. Please try again.");
+    },
   });
 
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: () => {
+      setTaskError("Could not cancel task. Please try again.");
     },
   });
 
@@ -78,6 +88,11 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      {taskError && (
+        <div className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+          {taskError}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>

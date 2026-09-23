@@ -59,7 +59,11 @@ export function TaskListPage() {
   const deleteMutation = useMutation({
     mutationFn: (task: Task) => deleteTask(task.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () => {
+      setTaskError("Could not delete task. Please try again.");
+    },
   });
+  const [taskError, setTaskError] = useState("");
 
   const canEditTask = (task: Task) =>
     !!user && (task.user_id === user.id || shareMap[task.id]?.permission === "EDIT");
@@ -108,6 +112,11 @@ export function TaskListPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
+      {taskError && (
+        <div className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+          {taskError}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">Tasks</h1>

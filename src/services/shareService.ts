@@ -1,5 +1,6 @@
 import { supabase } from "@/services/supabase";
 import type { ShareOverview, TaskShare, SharePermission } from "@/types";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
 
 /*
  * Every share mutation runs through a database function that re-checks the
@@ -51,7 +52,6 @@ export async function shareTask(
     p_permission: permission,
   });
   if (error) {
-    console.error("Failed to share task:", error.message);
     return { ok: false, reason: "unknown" };
   }
   return toResult(data);
@@ -66,7 +66,6 @@ export async function updateSharePermission(
     p_permission: permission,
   });
   if (error) {
-    console.error("Failed to change share permission:", error.message);
     return { ok: false, reason: "unknown" };
   }
   return toResult(data);
@@ -75,7 +74,6 @@ export async function updateSharePermission(
 export async function revokeShare(shareId: string): Promise<ShareResult> {
   const { data, error } = await supabase.rpc("revoke_task_share", { p_share_id: shareId });
   if (error) {
-    console.error("Failed to revoke share:", error.message);
     return { ok: false, reason: "unknown" };
   }
   return toResult(data);
@@ -84,7 +82,6 @@ export async function revokeShare(shareId: string): Promise<ShareResult> {
 export async function listTaskShares(taskId: string): Promise<TaskShare[]> {
   const { data, error } = await supabase.rpc("list_task_shares", { p_task_id: taskId });
   if (error) {
-    console.error("Failed to load task shares:", error.message);
     return [];
   }
   const raw = data as { ok?: boolean; shares?: TaskShare[] } | null;
@@ -93,7 +90,7 @@ export async function listTaskShares(taskId: string): Promise<TaskShare[]> {
 
 export async function getShareOverview(): Promise<ShareOverview> {
   const { data, error } = await supabase.rpc("list_share_overview");
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   const raw = data as
     | { ok?: boolean; shared_with_me?: ShareOverview["shared_with_me"]; shared_by_me?: ShareOverview["shared_by_me"] }
     | null;
@@ -112,7 +109,7 @@ export const SHARE_FAILURE_MESSAGES: Record<ShareFailureReason, string> = {
   invalid_permission: "Choose either view-only or can edit.",
   invalid_email: "Enter the email address of the person you want to share with.",
   not_owner: "Only the person who created this task can change who it is shared with.",
-  not_found: "No account was found with that email address.",
+  not_found: "We couldn't find an account with that email. Please check the address and try again.",
   self: "This task is already yours.",
   not_permitted: "You do not have permission to change this share.",
   unknown: "We couldn't update sharing just now. Please try again.",

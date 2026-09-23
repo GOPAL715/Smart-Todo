@@ -1,4 +1,5 @@
 import { supabase } from "@/services/supabase";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import type { Task, TaskReminder, ReminderType, TaskStatus, TaskPriority, Recurrence } from "@/types";
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
 import { toUtcIso, calculateReminderTime, toZonedTime } from "@/utils/dateTime";
@@ -80,7 +81,7 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   const task = mapRow(data as TaskRow);
 
   await createRemindersForTask(task, input.reminderOffsets);
@@ -131,7 +132,7 @@ async function createRemindersForTask(task: Task, reminderOffsets: number[]): Pr
   if (reminders.length === 0) return;
 
   const { error } = await supabase.from("task_reminders").insert(reminders);
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
 }
 
 function offsetToType(offset: number): ReminderType {
@@ -169,7 +170,7 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   const task = mapRow(data as TaskRow);
 
   const scheduleChanged =
@@ -211,7 +212,7 @@ async function replacePendingRemindersIfOwner(task: Task, offsets?: number[]): P
 
 export async function deleteTask(taskId: string): Promise<void> {
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
 }
 
 export async function getTask(taskId: string): Promise<Task | null> {
@@ -220,7 +221,7 @@ export async function getTask(taskId: string): Promise<Task | null> {
     .select("*")
     .eq("id", taskId)
     .maybeSingle();
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return data ? mapRow(data as TaskRow) : null;
 }
 
@@ -230,7 +231,7 @@ export async function getTaskReminders(taskId: string): Promise<TaskReminder[]> 
     .select("*")
     .eq("task_id", taskId)
     .order("reminder_time", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []) as TaskReminder[];
 }
 
@@ -245,7 +246,7 @@ export async function listTasks(filters?: {
   if (filters?.category) query = query.eq("category", filters.category);
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
@@ -255,7 +256,7 @@ export async function getTodayTasks(timezone: string = DEFAULT_TIMEZONE): Promis
     .select("*")
     .eq("task_date", localToday(timezone))
     .order("start_datetime", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
@@ -269,7 +270,7 @@ export async function getUpcomingTasks(): Promise<Task[]> {
     .neq("status", "COMPLETED")
     .order("start_datetime", { ascending: true })
     .limit(20);
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
@@ -279,7 +280,7 @@ export async function getOverdueTasks(): Promise<Task[]> {
     .select("*")
     .eq("status", "OVERDUE")
     .order("end_datetime", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
@@ -293,7 +294,7 @@ export async function getTasksByDate(date: string): Promise<Task[]> {
     .select("*")
     .eq("task_date", date)
     .order("start_datetime", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
@@ -303,7 +304,7 @@ export async function searchTasks(query: string): Promise<Task[]> {
     .select("*")
     .ilike("title", `%${query}%`)
     .order("start_datetime", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { getAuthErrorMessage } from "@/utils/authErrors";
 import { Bell, CheckCircle2, Clock, Calendar } from "lucide-react";
 
 export function LoginPage() {
@@ -10,17 +11,32 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setFieldErrors({});
+
+    if (!email.trim()) {
+      setFieldErrors({ email: "Please enter your email address." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setFieldErrors({ email: "Please enter a valid email address." });
+      return;
+    }
+    if (!password) {
+      setFieldErrors({ password: "Please enter your password." });
+      return;
+    }
+
     setLoading(true);
     try {
-      await signIn(email, password);
+      await signIn(email.trim().toLowerCase(), password);
       navigate("/app/dashboard");
     } catch (err) {
-      console.error("Sign-in failed:", err);
-      setError("Invalid email or password.");
+      setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -77,11 +93,12 @@ export function LoginPage() {
                 id="email"
                 type="email"
                 required
-                className="input"
+                className={`input ${fieldErrors.email ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              {fieldErrors.email && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.email}</p>}
             </div>
             <div>
               <label className="label" htmlFor="password">Password</label>
@@ -89,11 +106,12 @@ export function LoginPage() {
                 id="password"
                 type="password"
                 required
-                className="input"
-                placeholder="--------"
+                className={`input ${fieldErrors.password ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
+                placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              {fieldErrors.password && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>}
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Signing in..." : "Sign in"}

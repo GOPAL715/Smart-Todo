@@ -9,6 +9,7 @@ import { ArrowLeft, Save, WifiOff } from "lucide-react";
 import type { TaskPriority, Recurrence } from "@/types";
 import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
 
 const RECURRENCE_OPTIONS: { value: Recurrence | ""; label: string }[] = [
   { value: "", label: "Does not repeat" },
@@ -129,8 +130,7 @@ export function TaskFormPage() {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       navigate("/app/tasks");
     } catch (err) {
-      console.error("Failed to save task:", err);
-      setSubmitError("We couldn't save this task. Please check the details and try again.");
+      setSubmitError(getServiceErrorMessage(err));
     } finally {
       setLoading(false);
     }

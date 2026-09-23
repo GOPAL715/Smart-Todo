@@ -2,6 +2,7 @@ import { type ReactNode, createContext, useContext, useEffect, useState, useCall
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
 import { clearAuthenticatedCaches } from "@/utils/pwaCache";
+import { getAuthErrorMessage } from "@/utils/authErrors";
 import type { Profile } from "@/types";
 
 interface AuthContextValue {
@@ -29,7 +30,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
 
     if (error) {
-      console.error("Failed to load profile:", error.message);
       return;
     }
     setProfile(data as Profile | null);
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) throw new Error(getAuthErrorMessage(error));
   }, []);
 
   const signUp = useCallback(async (name: string, email: string, password: string) => {
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: { data: { name } },
     });
-    if (error) throw error;
+    if (error) throw new Error(getAuthErrorMessage(error));
     if (data.user) {
       await loadProfile(data.user.id);
     }

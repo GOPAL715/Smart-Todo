@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getTask, getTaskReminders, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
@@ -29,6 +30,7 @@ export function TaskDetailPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const userTimezone = useUserTimezone();
+  const [taskError, setTaskError] = useState("");
 
   const { data: overview } = useQuery({
     queryKey: ["share-overview"],
@@ -56,14 +58,17 @@ export function TaskDetailPage() {
   const startMutation = useMutation({
     mutationFn: () => startTask(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () => setTaskError("Could not start task. Please try again."),
   });
   const completeMutation = useMutation({
     mutationFn: () => completeTask(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () => setTaskError("Could not complete task. Please try again."),
   });
   const cancelMutation = useMutation({
     mutationFn: () => cancelTask(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onError: () => setTaskError("Could not cancel task. Please try again."),
   });
   const deleteMutation = useMutation({
     mutationFn: () => deleteTask(id!),
@@ -71,6 +76,7 @@ export function TaskDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       navigate("/app/tasks");
     },
+    onError: () => setTaskError("Could not delete task. Please try again."),
   });
 
   if (isLoading) {
@@ -92,6 +98,11 @@ export function TaskDetailPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
+      {taskError && (
+        <div className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+          {taskError}
+        </div>
+      )}
       <button onClick={() => navigate(-1)} className="btn-ghost text-sm">
         <ArrowLeft size={16} />
         Back
