@@ -168,4 +168,23 @@ export {
   isAfter,
   addMinutes,
   startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
 };
+
+/**
+ * Calendar date (`YYYY-MM-DD`) of an instant as observed in the given IANA
+ * timezone. Uses `Intl` instead of `toISOString()` so the result never
+ * depends on the browser's own timezone; invalid zones fall back to the
+ * default timezone.
+ */
+export function localDateStr(date: Date, timezone: string): string {
+  const formatter = (zone: string) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" });
+  try {
+    return formatter(timezone).format(date);
+  } catch {
+    return formatter(DEFAULT_TIMEZONE).format(date);
+  }
+}

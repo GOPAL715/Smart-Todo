@@ -5,11 +5,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { createTask, updateTask, getTask, type CreateTaskInput } from "@/services/taskService";
 import { REMINDER_OFFSETS, REMINDER_LABELS } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { ArrowLeft, Save, WifiOff } from "lucide-react";
-import type { TaskPriority, Recurrence } from "@/types";
+import { ArrowLeft, Save, WifiOff, Tag as TagIcon } from "lucide-react";
 import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
+import { getTags, createTag } from "@/services/tagService";
+import type { Tag, TaskPriority, Recurrence } from "@/types";
 
 const RECURRENCE_OPTIONS: { value: Recurrence | ""; label: string }[] = [
   { value: "", label: "Does not repeat" },
@@ -52,6 +53,9 @@ export function TaskFormPage() {
   const [selectedReminders, setSelectedReminders] = useState<number[]>([60, 30, 10, 0]);
   const [recurrence, setRecurrence] = useState<Recurrence | "">("");
   const [recurrenceUntil, setRecurrenceUntil] = useState("");
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -71,9 +75,15 @@ export function TaskFormPage() {
         setSelectedReminders(task.reminder_offsets ?? []);
         setRecurrence(task.recurrence ?? "");
         setRecurrenceUntil(task.recurrence_until ?? "");
+        setSelectedTagIds(task.tags?.map((t: Tag) => t.id) ?? []);
       }
     })();
   }, [id, isEdit]);
+
+  useEffect(() => {
+    if (!user) return;
+    getTags().then(setAvailableTags).catch(() => {});
+  }, [user]);
 
   const toggleReminder = (offset: number) => {
     setSelectedReminders((prev) =>
@@ -100,6 +110,20 @@ export function TaskFormPage() {
     return Object.keys(e).length === 0;
   };
 
+  const handleCreateTag = async () => {
+    const name = newTag.trim();
+    if (!name) return;
+    try {
+      const tag = await createTag(name);
+      setAvailableTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
+      setNewTag("");
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
+    } catch (err) {
+      setSubmitError(getServiceErrorMessage(err));
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError("");
@@ -118,6 +142,7 @@ export function TaskFormPage() {
         reminderOffsets: selectedReminders,
         recurrence: recurrence || null,
         recurrenceUntil: recurrenceUntil || null,
+        tagIds: selectedTagIds,
       };
 
       if (isEdit && id) {
@@ -128,6 +153,7 @@ export function TaskFormPage() {
 
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
       navigate("/app/tasks");
     } catch (err) {
       setSubmitError(getServiceErrorMessage(err));
@@ -148,7 +174,7 @@ export function TaskFormPage() {
       </h1>
 
       {submitError && (
-        <div className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+        <div role="alert" className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
           {submitError}
         </div>
       )}
@@ -217,16 +243,17 @@ export function TaskFormPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="priority">Priority</label>
-            <select
-              id="priority"
-              className="input"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as TaskPriority)}
-            >
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
+<select
+               id="priority"
+               className="input"
+               value={priority}
+               onChange={(e) => setPriority(e.target.value as TaskPriority)}
+             >
+               <option value="URGENT">Urgent</option>
+               <option value="HIGH">High</option>
+               <option value="MEDIUM">Medium</option>
+               <option value="LOW">Low</option>
+             </select>
           </div>
           <div>
             <label className="label" htmlFor="category">Category (optional)</label>
@@ -238,6 +265,45 @@ export function TaskFormPage() {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
             />
+          </div>
+        </div>
+
+        {/* Tags */}
+        <div>
+          <span className="label flex items-center gap-1.5"><TagIcon size={14} /> Tags (optional)</span>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {availableTags.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSelectedTagIds((prev) => prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id])}
+                className={`badge cursor-pointer transition-colors ${selectedTagIds.includes(t.id) ? "bg-primary-500 text-white dark:bg-primary-600" : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"}`}
+              >
+                {t.name}
+              </button>
+            ))}
+            {availableTags.length === 0 && (
+              <span className="text-xs text-neutral-400">No tags yet — create the first one below.</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="input w-44"
+              placeholder="New tag name"
+              aria-label="New tag name"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreateTag();
+                }
+              }}
+            />
+            <button type="button" onClick={handleCreateTag} disabled={!newTag.trim()} className="btn-secondary whitespace-nowrap">
+              <TagIcon size={14} /> Add tag
+            </button>
           </div>
         </div>
 

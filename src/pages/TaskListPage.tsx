@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listTasks, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
+import { getTaskTagMap } from "@/services/tagService";
+import { localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useAuth } from "@/hooks/useAuth";
 import { TaskCard } from "@/components/ui/TaskCard";
@@ -29,8 +31,16 @@ export function TaskListPage() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("");
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | "">("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sort, setSort] = useState<"due" | "priority" | "title" | "created">("due");
 
   const { data: allTasks = [] } = useQuery({ queryKey: ["tasks", "all"], queryFn: () => listTasks() });
+
+  const { data: tagMap = {} } = useQuery({
+    queryKey: ["task-tag-map", allTasks.map((t) => t.id)],
+    queryFn: () => getTaskTagMap(allTasks.map((t) => t.id)),
+    enabled: allTasks.length > 0,
+  });
 
   const { data: overview } = useQuery({
     queryKey: ["share-overview"],
@@ -43,6 +53,16 @@ export function TaskListPage() {
     for (const s of overview?.shared_with_me ?? []) map[s.task_id] = s;
     return map;
   }, [overview]);
+
+  const tagOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const tags of Object.values(tagMap)) {
+      for (const tag of tags) byId.set(tag.id, tag.name);
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [tagMap]);
 
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
@@ -77,7 +97,7 @@ export function TaskListPage() {
   const filteredTasks = useMemo(() => {
     let tasks = allTasks;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr(new Date(), userTimezone);
     const now = new Date().toISOString();
 
     switch (tab) {
@@ -102,18 +122,33 @@ export function TaskListPage() {
     if (priorityFilter) tasks = tasks.filter((t) => t.priority === priorityFilter);
     if (categoryFilter) tasks = tasks.filter((t) => t.category === categoryFilter);
     if (search.trim()) tasks = tasks.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
+    if (tagFilter) tasks = tasks.filter((t) => (tagMap[t.id] ?? []).some((tag) => tag.id === tagFilter));
+
+    const priorityRank: Record<TaskPriority, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    tasks = [...tasks].sort((a, b) => {
+      switch (sort) {
+        case "priority":
+          return priorityRank[a.priority] - priorityRank[b.priority];
+        case "title":
+          return a.title.localeCompare(b.title);
+        case "created":
+          return b.created_at.localeCompare(a.created_at);
+        default:
+          return (a.start_datetime ?? "").localeCompare(b.start_datetime ?? "");
+      }
+    });
 
     return tasks.map((t) =>
       shareMap[t.id]
         ? { ...t, share_permission: shareMap[t.id].permission, owner_name: shareMap[t.id].owner_name }
         : t
     );
-  }, [allTasks, tab, statusFilter, priorityFilter, categoryFilter, search, shareMap]);
+  }, [allTasks, tab, statusFilter, priorityFilter, categoryFilter, search, tagFilter, sort, tagMap, shareMap, userTimezone]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
       {taskError && (
-        <div className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+        <div role="alert" className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
           {taskError}
         </div>
       )}
@@ -163,12 +198,13 @@ export function TaskListPage() {
           <option value="OVERDUE">Overdue</option>
           <option value="CANCELLED">Cancelled</option>
         </select>
-        <select className="input w-auto" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "")}>
-          <option value="">All Priorities</option>
-          <option value="HIGH">High</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="LOW">Low</option>
-        </select>
+<select className="input w-auto" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "")}>
+              <option value="">All Priorities</option>
+              <option value="URGENT">Urgent</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
         {categories.length > 0 && (
           <select className="input w-auto" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
             <option value="">All Categories</option>
@@ -177,7 +213,34 @@ export function TaskListPage() {
             ))}
           </select>
         )}
+        {tagOptions.length > 0 && (
+          <select
+            className="input w-auto"
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            aria-label="Filter by tag"
+          >
+            <option value="">All Tags</option>
+            {tagOptions.map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
+          </select>
+        )}
+        <select
+          className="input w-auto ml-auto"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as "due" | "priority" | "title" | "created")}
+          aria-label="Sort tasks"
+        >
+          <option value="due">Sort: Due date</option>
+          <option value="priority">Sort: Priority</option>
+          <option value="title">Sort: Title</option>
+          <option value="created">Sort: Recently created</option>
+        </select>
       </div>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400" aria-live="polite">
+        Showing {filteredTasks.length} of {allTasks.length} tasks
+      </p>
 
       {/* Task list */}
       {filteredTasks.length === 0 ? (
@@ -191,6 +254,7 @@ export function TaskListPage() {
             <div key={task.id} className="relative group">
               <TaskCard
                 task={task}
+                tags={tagMap[task.id]}
                 displayTimezone={userTimezone}
                 onStart={startMutation.mutate}
                 onComplete={completeMutation.mutate}

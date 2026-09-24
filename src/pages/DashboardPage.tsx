@@ -5,10 +5,18 @@ import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, startTask, completeTask, cancelTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
 import { TaskCard } from "@/components/ui/TaskCard";
-import { getGreeting } from "@/utils/dateTime";
+import { getGreeting, localDateStr, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users } from "lucide-react";
+import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users, Flag } from "lucide-react";
 import type { Task, SharedWithMe } from "@/types";
+
+type AnalyticsRange = "today" | "week" | "month";
+
+const RANGE_OPTIONS: { key: AnalyticsRange; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+];
 
 export function DashboardPage() {
   const { profile, user } = useAuth();
@@ -80,6 +88,57 @@ export function DashboardPage() {
     overdue: overdueTasks.length,
   };
 
+  // Productivity analytics cover only tasks owned by the signed-in user
+  // (listTasks scope); shared tasks never contribute to personal metrics.
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("week");
+
+  const range = useMemo(() => {
+    const todayStr = localDateStr(new Date(), userTimezone);
+    const [y, m, d] = todayStr.split("-").map(Number);
+    const calToday = new Date(y, m - 1, d);
+    let start = calToday;
+    let end = calToday;
+    if (analyticsRange === "week") {
+      start = startOfWeek(calToday, { weekStartsOn: 0 });
+      end = endOfWeek(calToday, { weekStartsOn: 0 });
+    } else if (analyticsRange === "month") {
+      start = startOfMonth(calToday);
+      end = endOfMonth(calToday);
+    }
+    return { startStr: format(start, "yyyy-MM-dd"), endStr: format(end, "yyyy-MM-dd") };
+  }, [analyticsRange, userTimezone]);
+
+  const rangeTasks = useMemo(
+    () => allTasks.filter((t) => t.task_date >= range.startStr && t.task_date <= range.endStr),
+    [allTasks, range],
+  );
+  const rangeCompleted = useMemo(
+    () => rangeTasks.filter((t) => t.status === "COMPLETED").length,
+    [rangeTasks],
+  );
+  const rangeCompletionRate = rangeTasks.length > 0 ? Math.round((rangeCompleted / rangeTasks.length) * 100) : 0;
+  const rangeOverdue = rangeTasks.filter((t) => t.status === "OVERDUE").length;
+  const avgCycleMinutes = useMemo(() => {
+    const minutes = rangeTasks
+      .filter((t) => t.status === "COMPLETED")
+      .map((t) => (Date.parse(t.updated_at) - Date.parse(t.created_at)) / 60000)
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    if (minutes.length === 0) return null;
+    return Math.round(minutes.reduce((sum, value) => sum + value, 0) / minutes.length);
+  }, [rangeTasks]);
+
+  const urgentTasks = allTasks.filter((t) => t.priority === "URGENT").length;
+  const highTasks = allTasks.filter((t) => t.priority === "HIGH").length;
+
+  const formatCycle = (minutes: number | null): string => {
+    if (minutes === null) return "—";
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  };
+  const rangeLabel = analyticsRange === "today" ? "today" : analyticsRange === "week" ? "this week" : "this month";
+
   const localHour = Number(
     new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: userTimezone })
       .format(new Date())
@@ -89,7 +148,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {taskError && (
-        <div className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
+        <div role="alert" className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
           {taskError}
         </div>
       )}
@@ -116,6 +175,107 @@ export function DashboardPage() {
         <StatCard label="Pending" value={stats.pending} icon={<Clock size={18} />} color="neutral" />
         <StatCard label="In Progress" value={stats.inProgress} icon={<TrendingUp size={18} />} color="primary" />
         <StatCard label="Overdue" value={stats.overdue} icon={<AlertTriangle size={18} />} color="error" />
+      </div>
+
+      {/* Productivity */}
+      <section className="card p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Productivity</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Tasks scheduled {range.startStr === range.endStr ? `on ${range.startStr}` : `${range.startStr} to ${range.endStr}`} · owned by you
+            </p>
+          </div>
+          <div role="group" aria-label="Analytics time range" className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-1">
+            {RANGE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setAnalyticsRange(option.key)}
+                aria-pressed={analyticsRange === option.key}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  analyticsRange === option.key
+                    ? "bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-sm"
+                    : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-300"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">Completed</span>
+              <CheckCircle2 size={16} className="text-success-600" />
+            </div>
+            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{rangeCompleted}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">of {rangeTasks.length} scheduled</p>
+          </div>
+          <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">Completion rate</span>
+              <TrendingUp size={16} className="text-primary-600" />
+            </div>
+            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{rangeCompletionRate}%</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">of tasks in range</p>
+          </div>
+          <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">Overdue</span>
+              <AlertTriangle size={16} className="text-error-600" />
+            </div>
+            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{rangeOverdue}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">past due in range</p>
+          </div>
+          <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">Avg. completion</span>
+              <Clock size={16} className="text-primary-600" />
+            </div>
+            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{formatCycle(avgCycleMinutes)}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">created to completed</p>
+          </div>
+        </div>
+
+        <div
+          className="mt-4"
+          role="progressbar"
+          aria-valuenow={rangeCompletionRate}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Completion rate for ${rangeLabel}`}
+        >
+          <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+            <span>Completion progress</span>
+            <span>{rangeCompleted} of {rangeTasks.length} tasks</span>
+          </div>
+          <div className="w-full bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
+            <div className="bg-success-600 h-2 rounded-full transition-all duration-500" style={{ width: `${rangeCompletionRate}%` }} />
+          </div>
+        </div>
+      </section>
+
+      {/* Attention */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">Urgent</span>
+            <AlertTriangle size={16} className="text-error-600" />
+          </div>
+          <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{urgentTasks}</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">tasks needing attention</p>
+        </div>
+        <div className="card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">High Priority</span>
+            <Flag size={16} className="text-warning-600" />
+          </div>
+          <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{highTasks}</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">high priority tasks</p>
+        </div>
       </div>
 
       {/* Shared with me */}

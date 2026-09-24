@@ -1,5 +1,24 @@
 export type TaskStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "OVERDUE" | "CANCELLED";
-export type TaskPriority = "LOW" | "MEDIUM" | "HIGH";
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+export type Tag = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+};
+export interface Subtask {
+  id: string;
+  task_id: string;
+  title: string;
+  is_completed: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface TaskWithTags extends Task {
+  tags: Tag[];
+  subtasks: Subtask[];
+}
 export type ReminderType =
   | "ONE_DAY"
   | "TWO_HOURS"
@@ -82,6 +101,12 @@ export interface SharedByMe {
 export interface ShareOverview {
   shared_with_me: SharedWithMe[];
   shared_by_me: SharedByMe[];
+}
+
+/** A task enriched with Phase 10 relations, as returned by `getTask`. */
+export interface TaskWithRelations extends Task {
+  tags: Tag[];
+  subtasks: Subtask[];
 }
 
 export interface TaskReminder {

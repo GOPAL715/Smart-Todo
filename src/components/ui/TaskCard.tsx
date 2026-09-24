@@ -1,9 +1,10 @@
-import type { Task, TaskPriority, TaskStatus } from "@/types";
+import type { Task, TaskPriority, TaskStatus, Tag } from "@/types";
 import { formatTime, getRelativeTimeLabel, RECURRENCE_LABELS } from "@/utils/dateTime";
 import { Play, CheckCircle2, XCircle, Clock, AlertTriangle, Repeat, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const PRIORITY_STYLES: Record<TaskPriority, { dot: string; badge: string; label: string }> = {
+  URGENT: { dot: "bg-red-500", badge: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400", label: "URGENT" },
   HIGH: { dot: "bg-error-500", badge: "bg-error-50 text-error-700 dark:bg-error-950 dark:text-error-400", label: "HIGH" },
   MEDIUM: { dot: "bg-warning-500", badge: "bg-warning-50 text-warning-700 dark:bg-warning-950 dark:text-warning-400", label: "MEDIUM" },
   LOW: { dot: "bg-success-500", badge: "bg-success-50 text-success-700 dark:bg-success-950 dark:text-success-400", label: "LOW" },
@@ -27,9 +28,10 @@ interface TaskCardProps {
   compact?: boolean;
   canManage?: boolean;
   displayTimezone?: string;
+  tags?: Tag[];
 }
 
-export function TaskCard({ task, onStart, onComplete, onCancel, showActions = true, showRelativeTime = true, compact = false, canManage = true, displayTimezone }: TaskCardProps) {
+export function TaskCard({ task, tags, onStart, onComplete, onCancel, showActions = true, showRelativeTime = true, compact = false, canManage = true, displayTimezone }: TaskCardProps) {
   const priorityStyle = PRIORITY_STYLES[task.priority];
   const statusStyle = STATUS_STYLES[task.status];
 
@@ -45,6 +47,18 @@ export function TaskCard({ task, onStart, onComplete, onCancel, showActions = tr
             <span className={`badge ${priorityStyle.badge}`}>{priorityStyle.label}</span>
             {task.category && (
               <span className="badge bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">{task.category}</span>
+            )}
+            {tags && tags.length > 0 && (
+              <>
+                <span className="badge bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                  {tags[0].name}
+                </span>
+                {tags.length > 1 && (
+                  <span className="text-xs text-neutral-400" title={tags.slice(1).map((t) => t.name).join(", ")}>
+                    +{tags.length - 1} more
+                  </span>
+                )}
+              </>
             )}
             <span className={`badge ${statusStyle.badge}`}>{statusStyle.label}</span>
           </div>

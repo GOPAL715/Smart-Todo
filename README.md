@@ -13,10 +13,13 @@ A production-quality todo application with intelligent time-based task reminders
 - **Not-Started Detection** — Notifies you if a task hasn't been started 10 minutes after its start time
 - **Overdue Detection** — Automatically marks tasks overdue when end time passes
 - **Notification Center** — In-app notifications with unread count, mark as read, mark all as read, delete
-- **Dashboard** — Greeting, today's tasks, upcoming tasks, overdue tasks, statistics
-- **Task List** — Filter by status, priority, category; search by title; tabbed views (all, today, upcoming, completed, overdue)
-- **Calendar** — Monthly calendar with task indicators; click a date to see all tasks for that day
-- **Task Details** — Full task view with reminders, actions, and metadata
+- **Task Priorities** — LOW / MEDIUM / HIGH / URGENT with colour-coded badges wherever tasks appear
+- **Tags** — Create tags inline while writing a task, attach many tags per task, filter by tag, and see them on cards and detail views
+- **Subtasks** — Ordered checklist per task with a live completion progress bar on the detail page
+- **Dashboard** — Greeting, today's tasks, upcoming tasks, overdue tasks, statistics, plus a Productivity panel (Today / This week / This month) showing completed tasks, completion rate, overdue count and average time-to-complete — computed over your own tasks in your timezone
+- **Task List** — Filter by status, priority, category or tag; search by title; sort by due date, priority, title or recency; tabbed views (all, today, upcoming, completed, overdue, shared)
+- **Calendar** — Monthly calendar with priority-coloured task indicators; click a date to see all tasks for that day at timezone-correct times
+- **Task Details** — Full task view with subtasks, tags, reminders, actions, and metadata
 - **Timezone Handling** — All times stored as UTC (timestamptz); displayed in user timezone (default: Asia/Kolkata)
 - **Responsive Design** — Works on desktop, tablet, and mobile
 - **Dark Mode** — Light, dark, and system-following themes; persists across sessions
@@ -44,7 +47,7 @@ src/
 ├── pages/               # Page components (Dashboard, TaskList, TaskForm, TaskDetail, Calendar, Settings, Login, Signup)
 ├── layouts/             # Layout components (AppLayout with sidebar + notifications + offline banner)
 ├── hooks/               # Custom hooks (useAuth, useTheme, useReminderProcessor, useOnlineStatus, useUserTimezone)
-├── services/            # Service layer (supabase client, taskService, notificationService, shareService)
+├── services/            # Service layer (supabase client, taskService, tagService, subtaskService, notificationService, shareService)
 ├── types/               # TypeScript type definitions
 ├── utils/               # Utilities (dateTime helpers, timezone conversion, PWA cache management)
 └── routes/              # Route guards (ProtectedRoute)
@@ -60,13 +63,22 @@ src/
 - `id`, `user_id`, `title`, `description`
 - `task_date` (date), `start_time`, `end_time` (HH:mm)
 - `start_datetime`, `end_datetime` (timestamptz, UTC)
-- `duration_minutes`, `priority` (LOW/MEDIUM/HIGH)
+- `duration_minutes`, `priority` (LOW/MEDIUM/HIGH/URGENT)
 - `category`, `status` (PENDING/IN_PROGRESS/COMPLETED/OVERDUE/CANCELLED)
 - `reminder_offsets` (integer[] — minutes before start)
 - `recurrence` (DAILY/WEEKLY/MONTHLY, NULL for one-off tasks)
 - `recurrence_until` (date — optional last day the series may generate)
 - `series_id` (uuid — identifies one recurring series across its occurrences)
 - `created_at`, `updated_at`
+
+#### tags
+- `id`, `user_id`, `name`, `created_at` — one row per user-defined tag; unique (`user_id`, `name`)
+
+#### task_tags
+- `task_id`, `tag_id`, `created_at` — join table; unique (`task_id`, `tag_id`)
+
+#### subtasks
+- `id`, `task_id`, `title`, `is_completed`, `position`, `created_at`, `updated_at` — removed with the parent task (ON DELETE CASCADE)
 
 #### task_reminders
 - `id`, `task_id`, `reminder_type`, `reminder_time` (timestamptz)
@@ -84,6 +96,7 @@ src/
 - `tasks(user_id, task_date)` — dashboard/calendar
 - `tasks(status)`, `tasks(user_id, status)` — status filtering
 - `notifications(user_id, is_read, created_at)` — notification center
+- `tags(user_id)`, `task_tags(task_id)`, `task_tags(tag_id)`, `subtasks(task_id, position)` — tag and subtask lookups
 
 ## Reminder & Scheduler Architecture
 
@@ -156,6 +169,7 @@ the primary mechanism.
 - **Owner-scoped policies** — `auth.uid() = user_id` checks on every operation
 - **Task ownership** — users cannot access other users' tasks by changing IDs
 - **task_reminders** scoped through parent task's user_id
+- **tags** owner-only; **task_tags**/**subtasks** follow the parent task (owner or EDIT share) — enforced by RLS in migration 020
 - **SECURITY DEFINER functions** have EXECUTE revoked from anon role
 - **Password hashing** — managed by Supabase Auth (BCrypt)
 
@@ -175,6 +189,13 @@ the primary mechanism.
 - `DELETE /tasks/{id}` — delete task
 - `GET /tasks?task_date=eq.{date}` — tasks by date
 - Task status updates via `PATCH`-style updates
+
+### Tags (via Supabase client with RLS)
+- `GET/POST /tags`, `PATCH/DELETE /tags/{id}` — user-owned tags, unique name per user
+- `POST /task_tags` / `DELETE /task_tags` — attach/detach (RLS: own task or EDIT share; tag ids the caller cannot access are silently dropped, never errored)
+
+### Subtasks (via Supabase client with RLS)
+- `GET/POST /subtasks?task_id=eq.{id}`, `PATCH/DELETE /subtasks/{id}` — ordered checklist items (RLS: own task or EDIT share)
 
 ### Notifications (via Supabase client with RLS)
 - `GET /notifications` — list notifications
@@ -263,6 +284,10 @@ prevent cross-user data leakage.
    ```bash
    npm run typecheck
    ```
+6. Run unit tests (Vitest):
+   ```bash
+   npm test
+   ```
 
 ## Environment Variables
 
@@ -275,8 +300,10 @@ All Supabase environment variables are pre-populated:
 Access control is enforced in the database, not in the interface:
 
 - Row Level Security is enabled on every table (`profiles`, `tasks`, `task_reminders`,
-  `notifications`) with separate owner-scoped SELECT/INSERT/UPDATE/DELETE policies for
-  the `authenticated` role. `task_reminders` is scoped through its parent task.
+  `notifications`, `tags`, `task_tags`, `subtasks`) with separate owner-scoped
+  SELECT/INSERT/UPDATE/DELETE policies for the `authenticated` role. `task_reminders` is
+  scoped through its parent task; `task_tags` and `subtasks` follow the parent task's
+  owner-or-EDIT-share rules.
 - Task status changes are validated by a `BEFORE UPDATE` trigger
   (`enforce_task_status_transition`), so the workflow cannot be bypassed by calling the
   data API directly.
@@ -308,7 +335,8 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 
 ## Completed Features (all phases)
 
-- Core task management with full CRUD, status transitions, priorities, and categories
+- Core task management with full CRUD, status transitions, priorities (including URGENT), and categories
+- Phase 10 — Productivity Intelligence Foundation: user tags (create inline, attach/detach, filter by tag), subtasks with a live progress bar, multi-criteria task-list sorting, timezone-aware dashboard productivity analytics (own tasks only — shared tasks never skew personal stats), priority-coloured calendar indicators, and Vitest unit tests for the date/time utilities
 - Smart in-app reminders with configurable offsets (1 day through at-start)
 - Server-side pg_cron scheduler processing reminders every minute with duplicate protection
 - Task recurrence (daily, weekly, monthly) with DST-safe next-occurrence generation

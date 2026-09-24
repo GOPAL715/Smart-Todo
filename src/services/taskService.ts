@@ -1,26 +1,28 @@
 import { supabase } from "@/services/supabase";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
-import type { Task, TaskReminder, ReminderType, TaskStatus, TaskPriority, Recurrence } from "@/types";
+import type { Task, TaskWithRelations, TaskReminder, ReminderType, TaskStatus, TaskPriority, Recurrence } from "@/types";
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
 import { toUtcIso, calculateReminderTime, toZonedTime } from "@/utils/dateTime";
 import { DEFAULT_TIMEZONE } from "@/utils/dateTime";
+import { attachTag, getTaskTags } from "@/services/tagService";
+import { getSubtasks } from "@/services/subtaskService";
 
 export interface CreateTaskInput {
   title: string;
   description?: string;
-  taskDate: string; // yyyy-MM-dd
-  startTime: string; // HH:mm
-  endTime: string; // HH:mm
+  taskDate: string;
+  startTime: string;
+  endTime: string;
   priority: TaskPriority;
   category?: string;
-  reminderOffsets: number[]; // minutes before start; 0 = at start
+  reminderOffsets: number[];
   recurrence?: Recurrence | null;
-  recurrenceUntil?: string | null; // yyyy-MM-dd
+  recurrenceUntil?: string | null;
+  tagIds?: string[];
 }
 
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   status?: TaskStatus;
-  /** IANA zone used to interpret taskDate/startTime/endTime. */
   timezone?: string;
 }
 
@@ -85,6 +87,14 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
   const task = mapRow(data as TaskRow);
 
   await createRemindersForTask(task, input.reminderOffsets);
+
+  if (input.tagIds && input.tagIds.length > 0) {
+    // Tags are cosmetic metadata: a failed link must not fail task creation.
+    for (const tagId of input.tagIds) {
+      await attachTag(task.id, tagId).catch(() => undefined);
+    }
+  }
+
   return task;
 }
 
@@ -181,7 +191,51 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
     await replacePendingRemindersIfOwner(task, input.reminderOffsets);
   }
 
+  if (input.tagIds !== undefined) {
+    await syncTaskTags(taskId, input.tagIds);
+  }
+
   return task;
+}
+
+/**
+ * Makes a task's tag links match `tagIds` exactly. Only the caller's own tags
+ * can be linked (the `tags` select policy is RLS-scoped to the signed-in
+ * user), so unknown or foreign ids are dropped instead of failing the save.
+ * Row-level security on `task_tags` still decides whether a collaborator may
+ * write at all, and those failures surface to the caller.
+ */
+async function syncTaskTags(taskId: string, tagIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(tagIds)];
+  const idCandidates = uniqueIds.length > 0 ? uniqueIds : ["00000000-0000-0000-0000-000000000000"];
+
+  const { data: ownTags, error: ownError } = await supabase
+    .from("tags")
+    .select("id")
+    .in("id", idCandidates);
+  if (ownError) throw new Error(getServiceErrorMessage(ownError));
+  const allowed = new Set((ownTags ?? []).map((row: { id: string }) => row.id));
+
+  const { data: linkRows, error: linkError } = await supabase
+    .from("task_tags")
+    .select("tag_id")
+    .eq("task_id", taskId);
+  if (linkError) throw new Error(getServiceErrorMessage(linkError));
+  const current = new Set((linkRows ?? []).map((row: { tag_id: string }) => row.tag_id));
+
+  for (const tagId of allowed) {
+    if (!current.has(tagId)) await attachTag(taskId, tagId);
+  }
+  for (const tagId of current) {
+    if (!allowed.has(tagId)) {
+      const { error: detachError } = await supabase
+        .from("task_tags")
+        .delete()
+        .eq("task_id", taskId)
+        .eq("tag_id", tagId);
+      if (detachError) throw new Error(getServiceErrorMessage(detachError));
+    }
+  }
 }
 
 /**
@@ -215,14 +269,20 @@ export async function deleteTask(taskId: string): Promise<void> {
   if (error) throw new Error(getServiceErrorMessage(error));
 }
 
-export async function getTask(taskId: string): Promise<Task | null> {
+export async function getTask(taskId: string): Promise<TaskWithRelations | null> {
   const { data, error } = await supabase
     .from("tasks")
     .select("*")
     .eq("id", taskId)
     .maybeSingle();
   if (error) throw new Error(getServiceErrorMessage(error));
-  return data ? mapRow(data as TaskRow) : null;
+  const task = data ? mapRow(data as TaskRow) : null;
+  if (!task) return null;
+  const [tags, subtasks] = await Promise.all([
+    getTaskTags(taskId).catch(() => []),
+    getSubtasks(taskId).catch(() => []),
+  ]);
+  return { ...task, tags, subtasks };
 }
 
 export async function getTaskReminders(taskId: string): Promise<TaskReminder[]> {

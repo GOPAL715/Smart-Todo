@@ -121,7 +121,9 @@ export function CalendarPage() {
                       <div
                         key={t.id}
                         className={`text-[10px] px-1 py-0.5 rounded truncate ${
-                          t.priority === "HIGH"
+                          t.priority === "URGENT"
+                            ? "bg-error-200 text-error-800 dark:bg-error-900 dark:text-error-300 font-semibold"
+                            : t.priority === "HIGH"
                             ? "bg-error-100 text-error-700 dark:bg-error-950 dark:text-error-400"
                             : t.priority === "MEDIUM"
                             ? "bg-warning-100 text-warning-700 dark:bg-warning-950 dark:text-warning-400"
@@ -164,13 +166,14 @@ export function CalendarPage() {
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`w-2 h-2 rounded-full ${
+                      task.priority === "URGENT" ? "bg-error-600" :
                       task.priority === "HIGH" ? "bg-error-500" :
                       task.priority === "MEDIUM" ? "bg-warning-500" : "bg-success-500"
                     }`} />
                     <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{task.title}</span>
                   </div>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400 ml-4">
-                    {formatTime(task.start_datetime)} - {formatTime(task.end_datetime)}
+                    {formatTime(task.start_datetime, userTimezone)} - {formatTime(task.end_datetime, userTimezone)}
                   </p>
                   <span className={`badge mt-1.5 ml-4 ${
                     task.status === "COMPLETED" ? "bg-success-100 text-success-700 dark:bg-success-950 dark:text-success-400" :
