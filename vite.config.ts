@@ -68,16 +68,12 @@ export default defineConfig({
           {
             urlPattern: ({ url, request }) =>
               url.hostname.endsWith('.supabase.co') &&
-              request.method === 'GET' &&
-              !url.pathname.startsWith('/auth/'),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-api-data',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
-              networkTimeoutSeconds: 5,
-              cacheableResponse: { statuses: [0, 200] },
-            },
+              request.method !== 'GET',
+            handler: 'NetworkOnly',
           },
+          // Authenticated Supabase data must not be runtime-cached here.
+          // Requests include the user's bearer session; a shared Workbox cache
+          // could otherwise serve one account's response to another account.
         ],
       },
     }),

@@ -124,7 +124,7 @@ export function TaskDetailPage() {
       </div>
 
       {/* Subtasks */}
-      {canEdit && (
+      {(isOwner || isSharedWithMe) && (
         <div className="card p-6">
           <h2 className="font-semibold text-neutral-900 dark:text-neutral-100 mb-3 flex items-center gap-2">
             <CheckCircle2 size={18} />
@@ -141,9 +141,15 @@ export function TaskDetailPage() {
           <div className="space-y-2 mb-3">
             {subtasks.map((s: Subtask) => (
               <div key={s.id} className="flex items-center gap-3">
-                <button onClick={() => handleToggleSubtask(s)} className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`} aria-label={s.is_completed ? "Mark incomplete" : "Mark complete"}>
-                  {s.is_completed && <Check size={12} className="text-white" />}
-                </button>
+                {canEdit ? (
+                  <button onClick={() => handleToggleSubtask(s)} className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`} aria-label={s.is_completed ? "Mark incomplete" : "Mark complete"}>
+                    {s.is_completed && <Check size={12} className="text-white" />}
+                  </button>
+                ) : (
+                  <span className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`} aria-label={s.is_completed ? "Completed" : "Not completed"}>
+                    {s.is_completed && <Check size={12} className="text-white" />}
+                  </span>
+                )}
                 <span className={`text-sm ${s.is_completed ? "line-through text-neutral-400" : "text-neutral-700 dark:text-neutral-300"}`}>{s.title}</span>
                 {canEdit && (
                   <button onClick={() => handleDeleteSubtask(s.id)} className="ml-auto text-neutral-400 hover:text-error-600"><TrashIcon size={14} /></button>
@@ -151,10 +157,13 @@ export function TaskDetailPage() {
               </div>
             ))}
           </div>
-          <div className="flex gap-2">
-            <input type="text" className="input flex-1" placeholder="Add subtask..." value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSubtask()} />
-            <button onClick={handleAddSubtask} disabled={!newSubtaskTitle.trim()} className="btn-secondary"><Plus size={16} /> Add</button>
-          </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <input type="text" className="input flex-1" placeholder="Add subtask..." value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSubtask()} />
+              <button onClick={handleAddSubtask} disabled={!newSubtaskTitle.trim()} className="btn-secondary"><Plus size={16} /> Add</button>
+            </div>
+          )}
+          {!canEdit && <p className="text-xs text-neutral-400">Read-only subtasks</p>}
         </div>
       )}
 

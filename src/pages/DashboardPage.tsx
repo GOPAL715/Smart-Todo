@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, startTask, completeTask, cancelTask } from "@/services/taskService";
+import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, getOwnedTasks, startTask, completeTask, cancelTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
 import { TaskCard } from "@/components/ui/TaskCard";
 import { getGreeting, localDateStr, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "@/utils/dateTime";
@@ -28,6 +28,10 @@ export function DashboardPage() {
   const { data: upcomingTasks = [] } = useQuery({ queryKey: ["tasks", "upcoming"], queryFn: getUpcomingTasks });
   const { data: overdueTasks = [] } = useQuery({ queryKey: ["tasks", "overdue"], queryFn: getOverdueTasks });
   const { data: allTasks = [] } = useQuery({ queryKey: ["tasks", "all"], queryFn: () => listTasks() });
+  const ownedTasks = useMemo(
+    () => getOwnedTasks(allTasks, user?.id),
+    [allTasks, user?.id]
+  );
 
   const { data: overview } = useQuery({
     queryKey: ["share-overview"],
@@ -81,11 +85,11 @@ export function DashboardPage() {
   });
 
   const stats = {
-    total: allTasks.length,
-    completed: allTasks.filter((t) => t.status === "COMPLETED").length,
-    pending: allTasks.filter((t) => t.status === "PENDING").length,
-    inProgress: allTasks.filter((t) => t.status === "IN_PROGRESS").length,
-    overdue: overdueTasks.length,
+    total: ownedTasks.length,
+    completed: ownedTasks.filter((t) => t.status === "COMPLETED").length,
+    pending: ownedTasks.filter((t) => t.status === "PENDING").length,
+    inProgress: ownedTasks.filter((t) => t.status === "IN_PROGRESS").length,
+    overdue: ownedTasks.filter((t) => t.status === "OVERDUE").length,
   };
 
   // Productivity analytics cover only tasks owned by the signed-in user
@@ -109,8 +113,8 @@ export function DashboardPage() {
   }, [analyticsRange, userTimezone]);
 
   const rangeTasks = useMemo(
-    () => allTasks.filter((t) => t.task_date >= range.startStr && t.task_date <= range.endStr),
-    [allTasks, range],
+    () => ownedTasks.filter((t) => t.task_date >= range.startStr && t.task_date <= range.endStr),
+    [ownedTasks, range],
   );
   const rangeCompleted = useMemo(
     () => rangeTasks.filter((t) => t.status === "COMPLETED").length,
@@ -127,8 +131,8 @@ export function DashboardPage() {
     return Math.round(minutes.reduce((sum, value) => sum + value, 0) / minutes.length);
   }, [rangeTasks]);
 
-  const urgentTasks = allTasks.filter((t) => t.priority === "URGENT").length;
-  const highTasks = allTasks.filter((t) => t.priority === "HIGH").length;
+  const urgentTasks = ownedTasks.filter((t) => t.priority === "URGENT").length;
+  const highTasks = ownedTasks.filter((t) => t.priority === "HIGH").length;
 
   const formatCycle = (minutes: number | null): string => {
     if (minutes === null) return "—";

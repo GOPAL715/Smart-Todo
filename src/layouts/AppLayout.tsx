@@ -232,7 +232,7 @@ export function AppLayout() {
         {!isOnline && (
           <div className="bg-warning-50 dark:bg-warning-950 border-b border-warning-200 dark:border-warning-800 px-4 py-2 flex items-center gap-2 text-sm text-warning-800 dark:text-warning-300">
             <WifiOff size={16} className="shrink-0" />
-            <span>You're offline. Showing cached data. Changes cannot be saved until you reconnect.</span>
+            <span>You're offline. Authenticated task data may be unavailable until you reconnect.</span>
           </div>
         )}
 

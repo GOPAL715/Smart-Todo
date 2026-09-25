@@ -29,8 +29,7 @@ export type ReminderType =
   | "FIVE_MINUTES"
   | "AT_START"
   | "NOT_STARTED"
-  | "OVERDUE"
-  | "CUSTOM";
+  | "OVERDUE";
 export type NotificationType = "IN_APP";
 export type Recurrence = "DAILY" | "WEEKLY" | "MONTHLY";
 export type SharePermission = "VIEW" | "EDIT";
@@ -62,6 +61,8 @@ export interface Task {
   recurrence: Recurrence | null;
   recurrence_until: string | null;
   series_id: string | null;
+  schedule_timezone: string | null;
+  series_timezone_locked: boolean;
   created_at: string;
   updated_at: string;
   /*

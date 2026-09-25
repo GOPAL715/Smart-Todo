@@ -2,11 +2,9 @@ import { supabase } from "@/services/supabase";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import type { Task, TaskWithRelations, TaskReminder, ReminderType, TaskStatus, TaskPriority, Recurrence } from "@/types";
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
-import { toUtcIso, calculateReminderTime, toZonedTime } from "@/utils/dateTime";
-import { DEFAULT_TIMEZONE } from "@/utils/dateTime";
+import { DEFAULT_TIMEZONE, toUtcIso, localDateStr, calculateReminderTime } from "@/utils/dateTime";
 import { attachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks } from "@/services/subtaskService";
-
 export interface CreateTaskInput {
   title: string;
   description?: string;
@@ -44,6 +42,8 @@ interface TaskRow {
   recurrence: Recurrence | null;
   recurrence_until: string | null;
   series_id: string | null;
+  schedule_timezone: string | null;
+  series_timezone_locked: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +60,8 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
   const [sh, sm] = input.startTime.split(":").map(Number);
   const [eh, em] = input.endTime.split(":").map(Number);
   const durationMinutes = eh * 60 + em - (sh * 60 + sm);
+  const reminderOffsets = [...new Set(input.reminderOffsets)];
+  assertSupportedReminderOffsets(reminderOffsets);
 
   const { data, error } = await supabase
     .from("tasks")
@@ -76,9 +78,11 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
       priority: input.priority,
       category: input.category ?? null,
       status: "PENDING",
-      reminder_offsets: input.reminderOffsets,
+      reminder_offsets: reminderOffsets,
       recurrence: input.recurrence ?? null,
       recurrence_until: input.recurrenceUntil ?? null,
+      schedule_timezone: input.recurrence ? timezone : null,
+      series_timezone_locked: Boolean(input.recurrence),
     })
     .select("*")
     .single();
@@ -86,7 +90,7 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
   if (error) throw new Error(getServiceErrorMessage(error));
   const task = mapRow(data as TaskRow);
 
-  await createRemindersForTask(task, input.reminderOffsets);
+  await createRemindersForTask(task, reminderOffsets);
 
   if (input.tagIds && input.tagIds.length > 0) {
     // Tags are cosmetic metadata: a failed link must not fail task creation.
@@ -106,7 +110,7 @@ async function createRemindersForTask(task: Task, reminderOffsets: number[]): Pr
     is_sent: boolean;
   }> = [];
 
-  for (const offset of reminderOffsets) {
+  for (const offset of new Set(reminderOffsets)) {
     const type = offsetToType(offset);
     const reminderTime = calculateReminderTime(task.start_datetime, offset);
     if (new Date(reminderTime) <= new Date()) continue; // skip past reminders
@@ -145,12 +149,24 @@ async function createRemindersForTask(task: Task, reminderOffsets: number[]): Pr
   if (error) throw new Error(getServiceErrorMessage(error));
 }
 
-function offsetToType(offset: number): ReminderType {
-  const entry = Object.entries(REMINDER_OFFSETS).find(([, val]) => val === offset);
-  return (entry?.[0] as ReminderType) ?? "CUSTOM";
+function assertSupportedReminderOffsets(offsets: number[]): void {
+  const supported = new Set<number>(Object.values(REMINDER_OFFSETS));
+  for (const offset of offsets) {
+    if (!supported.has(offset)) {
+      throw new Error(`Unsupported reminder offset: ${offset}`);
+    }
+  }
 }
 
-export async function updateTask(taskId: string, input: UpdateTaskInput): Promise<Task> {
+function offsetToType(offset: number): ReminderType {
+  const entry = Object.entries(REMINDER_OFFSETS).find(([, val]) => val === offset);
+  if (!entry) {
+    throw new Error(`Unsupported reminder offset: ${offset}`);
+  }
+  return entry[0] as ReminderType;
+}
+
+export function buildTaskUpdate(input: UpdateTaskInput): Record<string, unknown> {
   const updates: Record<string, unknown> = {};
 
   if (input.title !== undefined) updates.title = input.title;
@@ -160,11 +176,17 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
   if (input.status !== undefined) updates.status = input.status;
   if (input.recurrence !== undefined) updates.recurrence = input.recurrence;
   if (input.recurrenceUntil !== undefined) updates.recurrence_until = input.recurrenceUntil;
+  if (input.reminderOffsets !== undefined) {
+    const reminderOffsets = [...new Set(input.reminderOffsets)];
+    assertSupportedReminderOffsets(reminderOffsets);
+    updates.reminder_offsets = reminderOffsets;
+  }
 
   if (input.taskDate !== undefined && input.startTime !== undefined && input.endTime !== undefined) {
     const dateObj = new Date(input.taskDate + "T00:00:00");
-    updates.start_datetime = toUtcIso(dateObj, input.startTime, input.timezone);
-    updates.end_datetime = toUtcIso(dateObj, input.endTime, input.timezone);
+    const timezone = input.timezone ?? DEFAULT_TIMEZONE;
+    updates.start_datetime = toUtcIso(dateObj, input.startTime, timezone);
+    updates.end_datetime = toUtcIso(dateObj, input.endTime, timezone);
     updates.task_date = input.taskDate;
     updates.start_time = input.startTime;
     updates.end_time = input.endTime;
@@ -172,6 +194,16 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
     const [eh, em] = input.endTime.split(":").map(Number);
     updates.duration_minutes = eh * 60 + em - (sh * 60 + sm);
   }
+
+  return updates;
+}
+
+export function getOwnedTasks(tasks: Task[], userId: string | undefined): Task[] {
+  return userId ? tasks.filter((task) => task.user_id === userId) : [];
+}
+
+export async function updateTask(taskId: string, input: UpdateTaskInput): Promise<Task> {
+  const updates = buildTaskUpdate(input);
 
   const { data, error } = await supabase
     .from("tasks")
@@ -183,14 +215,9 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
   if (error) throw new Error(getServiceErrorMessage(error));
   const task = mapRow(data as TaskRow);
 
-  const scheduleChanged =
-    input.taskDate !== undefined || input.startTime !== undefined || input.endTime !== undefined;
-  const remindersChanged = input.reminderOffsets !== undefined;
-
-  if ((scheduleChanged || remindersChanged) && task.status !== "CANCELLED") {
-    await replacePendingRemindersIfOwner(task, input.reminderOffsets);
-  }
-
+  // Pending reminders are rebuilt transactionally by the database trigger when
+  // the owner changes schedule fields or reminder offsets. Sent reminders are
+  // intentionally left untouched by that trigger.
   if (input.tagIds !== undefined) {
     await syncTaskTags(taskId, input.tagIds);
   }
@@ -236,32 +263,6 @@ async function syncTaskTags(taskId: string, tagIds: string[]): Promise<void> {
       if (detachError) throw new Error(getServiceErrorMessage(detachError));
     }
   }
-}
-
-/**
- * Rebuilds the not-yet-sent reminders for a task so they match its current
- * schedule and offsets. Already-sent reminders are left alone, preserving the
- * delivery history. Occurrences generated later by the server get their own
- * reminders when they are created.
- *
- * Reminder rows are owned through the parent task and are not writable by a
- * collaborator, so this only runs for the task's owner. A collaborator editing a
- * task they were granted access to skips it instead of failing.
- */
-async function replacePendingRemindersIfOwner(task: Task, offsets?: number[]): Promise<void> {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user || data.user.id !== task.user_id) return;
-
-  const effectiveOffsets = offsets ?? task.reminder_offsets ?? [];
-
-  const { error: deleteError } = await supabase
-    .from("task_reminders")
-    .delete()
-    .eq("task_id", task.id)
-    .eq("is_sent", false);
-  if (deleteError) throw deleteError;
-
-  await createRemindersForTask(task, effectiveOffsets);
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
@@ -345,7 +346,7 @@ export async function getOverdueTasks(): Promise<Task[]> {
 }
 
 function localToday(timezone: string): string {
-  return toZonedTime(new Date(), timezone).toISOString().slice(0, 10);
+  return localDateStr(new Date(), timezone);
 }
 
 export async function getTasksByDate(date: string): Promise<Task[]> {

@@ -71,7 +71,6 @@ export const REMINDER_LABELS: Record<string, string> = {
   AT_START: "At start time",
   NOT_STARTED: "Not started check (10 min after start)",
   OVERDUE: "Overdue check (at end time)",
-  CUSTOM: "Custom",
 };
 
 export function toUtcIso(
@@ -172,6 +171,14 @@ export {
   startOfWeek,
   endOfWeek,
 };
+
+/** A date-only key for calendar grids; the Date already represents a local calendar day. */
+export function calendarDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 /**
  * Calendar date (`YYYY-MM-DD`) of an instant as observed in the given IANA

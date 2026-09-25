@@ -53,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })();
       } else {
         setProfile(null);
+        void clearAuthenticatedCaches();
       }
     });
 

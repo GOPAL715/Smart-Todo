@@ -7,9 +7,17 @@ import {
   getGreeting,
   getRelativeTimeLabel,
   isStartTimeBeforeEndTime,
+  calendarDateKey,
   localDateStr,
   toUtcIso,
 } from "./dateTime";
+
+describe("calendarDateKey", () => {
+  it("uses local calendar fields without converting through UTC", () => {
+    const localDay = new Date(2026, 0, 16, 0, 30);
+    expect(calendarDateKey(localDay)).toBe("2026-01-16");
+  });
+});
 
 describe("localDateStr", () => {
   const instant = new Date("2026-01-15T19:30:00Z");
@@ -26,6 +34,13 @@ describe("localDateStr", () => {
 
   it("falls back to the default timezone for an invalid zone", () => {
     expect(localDateStr(instant, "Not/AZone")).toBe(localDateStr(instant, DEFAULT_TIMEZONE));
+  });
+
+  it("keeps midnight dates stable across the requested timezone", () => {
+    const justAfterMidnightUtc = new Date("2026-01-16T00:15:00Z");
+    expect(localDateStr(justAfterMidnightUtc, "UTC")).toBe("2026-01-16");
+    expect(localDateStr(justAfterMidnightUtc, "America/New_York")).toBe("2026-01-15");
+    expect(localDateStr(justAfterMidnightUtc, "Asia/Kolkata")).toBe("2026-01-16");
   });
 });
 

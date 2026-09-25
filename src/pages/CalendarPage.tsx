@@ -2,16 +2,12 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getTasksByDate } from "@/services/taskService";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, startOfMonth, formatTime, toZonedTime } from "@/utils/dateTime";
+import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, startOfMonth, formatTime, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { Task } from "@/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function localDateStr(day: Date, timezone: string): string {
-  return toZonedTime(day, timezone).toISOString().slice(0, 10);
-}
 
 export function CalendarPage() {
   const [monthDate, setMonthDate] = useState(new Date());
@@ -21,12 +17,12 @@ export function CalendarPage() {
   const calendarDays = useMemo(() => getCalendarDays(monthDate), [monthDate]);
 
   const { data: tasks = [] } = useQuery({
-    queryKey: ["tasks", "calendar", format(startOfMonth(monthDate), "yyyy-MM")],
+    queryKey: ["tasks", "calendar", format(startOfMonth(monthDate), "yyyy-MM"), userTimezone],
     queryFn: async () => {
       const allTasks: Task[] = [];
       const seen = new Set<string>();
       for (const day of calendarDays) {
-        const dateStr = localDateStr(day, userTimezone);
+        const dateStr = calendarDateKey(day);
         const dayTasks = await getTasksByDate(dateStr);
         for (const t of dayTasks) {
           if (!seen.has(t.id)) {
@@ -49,7 +45,7 @@ export function CalendarPage() {
     return map;
   }, [tasks]);
 
-  const selectedDateStr = localDateStr(selectedDate, userTimezone);
+  const selectedDateStr = calendarDateKey(selectedDate);
   const selectedTasks = tasksByDate[selectedDateStr] ?? [];
 
   return (
@@ -95,9 +91,9 @@ export function CalendarPage() {
           {/* Days grid */}
           <div className="grid grid-cols-7 gap-1">
             {calendarDays.map((day) => {
-              const dateStr = localDateStr(day, userTimezone);
+              const dateStr = calendarDateKey(day);
               const dayTasks = tasksByDate[dateStr] ?? [];
-              const isToday = isSameDay(day, new Date());
+              const isToday = dateStr === localDateStr(new Date(), userTimezone);
               const isSelected = isSameDay(day, selectedDate);
               const inMonth = isSameMonth(day, monthDate);
 

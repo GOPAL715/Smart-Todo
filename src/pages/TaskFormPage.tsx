@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { createTask, updateTask, getTask, type CreateTaskInput } from "@/services/taskService";
-import { REMINDER_OFFSETS, REMINDER_LABELS } from "@/utils/dateTime";
+import { REMINDER_OFFSETS, REMINDER_LABELS, localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { ArrowLeft, Save, WifiOff, Tag as TagIcon } from "lucide-react";
 import { useEffect } from "react";
@@ -30,10 +30,6 @@ const REMINDER_OPTIONS = [
   { value: REMINDER_OFFSETS.AT_START, label: REMINDER_LABELS.AT_START },
 ];
 
-function formatDateInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 export function TaskFormPage() {
   const { id } = useParams();
   const isEdit = !!id;
@@ -45,7 +41,7 @@ export function TaskFormPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [taskDate, setTaskDate] = useState(formatDateInput(new Date()));
+  const [taskDate, setTaskDate] = useState("");
   const [startTime, setStartTime] = useState("16:00");
   const [endTime, setEndTime] = useState("17:00");
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM");
@@ -59,6 +55,10 @@ export function TaskFormPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  useEffect(() => {
+    if (!isEdit) setTaskDate(localDateStr(new Date(), userTimezone));
+  }, [isEdit, userTimezone]);
 
   useEffect(() => {
     if (!isEdit || !id) return;
