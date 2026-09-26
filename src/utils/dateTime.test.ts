@@ -107,10 +107,44 @@ describe("getRelativeTimeLabel", () => {
   it("describes a future start", () => {
     expect(getRelativeTimeLabel("2026-01-15T09:10:00Z", now)).toBe("Starts in 10 min");
     expect(getRelativeTimeLabel("2026-01-15T11:00:00Z", now)).toBe("Starts in 2 hr");
+    expect(getRelativeTimeLabel("2026-01-15T11:30:00Z", now)).toBe("Starts in 2 hr 30 min");
   });
 
-  it("marks started/past instants", () => {
-    expect(getRelativeTimeLabel("2026-01-15T08:00:00Z", now)).toBe("Started");
+  it("reports a start happening right now", () => {
     expect(getRelativeTimeLabel("2026-01-15T09:00:00Z", now)).toBe("Starting now");
+  });
+
+  it("says Started for a recently started task", () => {
+    // Within the recently-started window.
+    expect(getRelativeTimeLabel("2026-01-15T08:59:00Z", now)).toBe("Started");
+    expect(getRelativeTimeLabel("2026-01-15T08:45:00Z", now)).toBe("Started");
+    expect(getRelativeTimeLabel("2026-01-15T08:30:00Z", now)).toBe("Started");
+  });
+
+  it("no longer says Started for a substantially past start", () => {
+    // Regression: any past instant used to return "Started", so a task from
+    // last week read the same as one that began a minute ago.
+    expect(getRelativeTimeLabel("2026-01-15T08:29:00Z", now)).toBe("Started 31 min ago");
+    expect(getRelativeTimeLabel("2026-01-15T07:00:00Z", now)).toBe("Started 2 hr ago");
+    expect(getRelativeTimeLabel("2026-01-15T06:30:00Z", now)).toBe("Started 2 hr 30 min ago");
+    expect(getRelativeTimeLabel("2026-01-14T09:00:00Z", now)).toBe("Started 1 day ago");
+    expect(getRelativeTimeLabel("2026-01-12T09:00:00Z", now)).toBe("Started 3 days ago");
+    expect(getRelativeTimeLabel("2025-12-12T09:00:00Z", now)).toBe("Started 34 days ago");
+  });
+
+  it("handles the boundary at exactly 30 minutes past", () => {
+    // 30 min is still "Started"; 31 min switches to a past-due phrase.
+    expect(getRelativeTimeLabel("2026-01-15T08:30:00Z", now)).toBe("Started");
+    expect(getRelativeTimeLabel("2026-01-15T08:29:00Z", now)).toBe("Started 31 min ago");
+  });
+
+  it("handles the boundary at exactly one hour in the future", () => {
+    expect(getRelativeTimeLabel("2026-01-15T09:59:00Z", now)).toBe("Starts in 59 min");
+    expect(getRelativeTimeLabel("2026-01-15T10:00:00Z", now)).toBe("Starts in 1 hr");
+  });
+
+  it("handles sub-minute and zero differences", () => {
+    // differenceInMinutes truncates, so a start seconds ago reads as "Starting now".
+    expect(getRelativeTimeLabel("2026-01-15T09:00:30Z", now)).toBe("Starting now");
   });
 });

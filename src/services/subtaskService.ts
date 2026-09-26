@@ -33,8 +33,14 @@ export async function deleteSubtask(subtaskId: string): Promise<void> {
   if (error) throw new Error(getServiceErrorMessage(error));
 }
 
-export async function reorderSubtasks(taskId: string, subtaskIds: string[]): Promise<void> {
-  const updates = subtaskIds.map((id, i) => ({ id, position: i }));
-  const { error } = await supabase.from("subtasks").upsert(updates);
-  if (error) throw new Error(getServiceErrorMessage(error));
-}
+/*
+ * Removed: `reorderSubtasks`.
+ *
+ * It was dead code — nothing imported or called it, and there is no reordering
+ * UI. It was also unsafe: `upsert` with `{ id, position }` partial rows would
+ * attempt to INSERT a row for any id that did not already exist, and
+ * `subtasks.task_id` is NOT NULL, so a stale id would have thrown a constraint
+ * error after other rows had already been updated. Reordering should be
+ * reintroduced with a deliberate, ownership-checked implementation if and when
+ * the UI needs it.
+ */

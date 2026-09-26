@@ -13,13 +13,20 @@ function isSupabaseAuthError(err: unknown): err is SupabaseAuthError {
   );
 }
 
-export function getAuthErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    const supabaseErr = err as unknown as SupabaseAuthError;
-    const code = supabaseErr.code ?? "";
-    const message = supabaseErr.message ?? "";
+/**
+ * Maps a Supabase-shaped auth error to fixed, user-safe copy.
+ *
+ * Kept separate from `getAuthErrorMessage` so both an `Error` instance and a
+ * plain `{ message, code }` object resolve through exactly one code path. Only
+ * the fixed strings below ever reach the user; raw provider text is used solely
+ * for classification and is never returned, which preserves the app's
+ * non-enumerable error philosophy.
+ */
+function resolveAuthErrorMessage(supabaseErr: SupabaseAuthError): string {
+  const code = supabaseErr.code ?? "";
+  const message = supabaseErr.message ?? "";
 
-    switch (code) {
+  switch (code) {
       case "weak_password":
       case "auth/weak-password":
         return "Password is too weak. Please use a stronger password.";
@@ -86,10 +93,22 @@ export function getAuthErrorMessage(err: unknown): string {
 
         return "Something went wrong. Please try again.";
     }
+}
+
+export function getAuthErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    return resolveAuthErrorMessage(err as unknown as SupabaseAuthError);
   }
 
   if (isSupabaseAuthError(err)) {
-    return getAuthErrorMessage(err);
+    /*
+     * A plain object that structurally matches a Supabase auth error (it has a
+     * `message`, but is not an `Error` instance). Re-entering this function with
+     * the same value would take this same branch again and recurse until the
+     * stack overflows, so the provider shape is resolved here directly instead
+     * of by a self-call.
+     */
+    return resolveAuthErrorMessage(err);
   }
 
   return "Something went wrong. Please try again.";

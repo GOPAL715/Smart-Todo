@@ -1,12 +1,13 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getTasksByDate } from "@/services/taskService";
+import { getTasksByDateRange, calendarRange, groupTasksByDate } from "@/services/taskService";
 import { queryKeys } from "@/services/queryKeys";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useAuth } from "@/hooks/useAuthContext";
 import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, startOfMonth, formatTime, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, AlertTriangle, RotateCw } from "lucide-react";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import type { Task } from "@/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -19,38 +20,39 @@ export function CalendarPage() {
 
   const calendarDays = useMemo(() => getCalendarDays(monthDate), [monthDate]);
 
-  const { data: tasks = [] } = useQuery({
-    queryKey: queryKeys.taskList(user?.id, `calendar-${format(startOfMonth(monthDate), "yyyy-MM")}-${userTimezone}`),
+  /*
+   * One range query for the whole grid, replacing the previous per-day loop
+   * (35–42 sequential requests per month).
+   */
+  const range = useMemo(() => calendarRange(calendarDays), [calendarDays]);
+
+  const {
+    data: tasks = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: queryKeys.taskList(
+      user?.id,
+      `calendar-${format(startOfMonth(monthDate), "yyyy-MM")}-${userTimezone}`
+    ),
     queryFn: async () => {
-      const allTasks: Task[] = [];
-      const seen = new Set<string>();
-      for (const day of calendarDays) {
-        const dateStr = calendarDateKey(day);
-        const dayTasks = await getTasksByDate(dateStr);
-        for (const t of dayTasks) {
-          if (!seen.has(t.id)) {
-            seen.add(t.id);
-            allTasks.push(t);
-          }
-        }
-      }
-      return allTasks;
+      if (!range) return [] as Task[];
+      return getTasksByDateRange(range.start, range.end);
     },
     staleTime: 30_000,
-    enabled: !!user,
+    enabled: !!user && !!range,
   });
 
-  const tasksByDate = useMemo(() => {
-    const map: Record<string, Task[]> = {};
-    for (const t of tasks) {
-      if (!map[t.task_date]) map[t.task_date] = [];
-      map[t.task_date].push(t);
-    }
-    return map;
-  }, [tasks]);
+  const tasksByDate = useMemo(() => groupTasksByDate(tasks), [tasks]);
 
   const selectedDateStr = calendarDateKey(selectedDate);
   const selectedTasks = tasksByDate[selectedDateStr] ?? [];
+
+  const loadErrorMessage = isError
+    ? getServiceErrorMessage(error)
+    : "";
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
@@ -82,6 +84,38 @@ export function CalendarPage() {
               </button>
             </div>
           </div>
+
+          {/* Loading / error banner */}
+          {isLoading && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 mb-3"
+            >
+              <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+              Loading tasks...
+            </div>
+          )}
+
+          {isError && (
+            <div
+              role="alert"
+              className="mb-3 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400"
+            >
+              <p className="flex items-start gap-2">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                <span>{loadErrorMessage}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="btn-secondary mt-3"
+              >
+                <RotateCw size={16} />
+                Try again
+              </button>
+            </div>
+          )}
 
           {/* Weekday headers */}
           <div className="grid grid-cols-7 mb-2">
@@ -154,7 +188,13 @@ export function CalendarPage() {
 
           {selectedTasks.length === 0 ? (
             <div className="text-center py-8 text-neutral-400">
-              <p className="text-sm">No tasks for this date</p>
+              <p className="text-sm">
+                {isLoading
+                  ? "Loading tasks..."
+                  : isError
+                  ? "Tasks could not be loaded"
+                  : "No tasks for this date"}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">

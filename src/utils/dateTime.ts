@@ -138,16 +138,57 @@ export function getGreeting(date: Date = new Date()): string {
   return "Good night";
 }
 
+/** How far back a start time may be before it is described as past-due rather than started. */
+const RECENTLY_STARTED_MINUTES = 30;
+
+/**
+ * Human-readable countdown to (or state after) a task's start time.
+ *
+ * The past branch used to return "Started" for *any* earlier instant, so a task
+ * scheduled for last week read exactly like one that began a minute ago. Past
+ * starts are now split by how long ago they were: only a genuinely recent start
+ * is "Started", and anything older reads as past-due ("Started 2 days ago").
+ *
+ * Only presentation changes here; the underlying instant comparison is untouched
+ * and remains timezone-safe (it compares absolute instants).
+ */
 export function getRelativeTimeLabel(startIso: string, now: Date = new Date()): string {
   const start = parseISO(startIso);
   const diffMins = differenceInMinutes(start, now);
-  if (diffMins < 0) return "Started";
+
+  if (diffMins > 0) {
+    if (diffMins < 60) return `Starts in ${diffMins} min`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    if (mins === 0) return `Starts in ${hours} hr`;
+    return `Starts in ${hours} hr ${mins} min`;
+  }
+
   if (diffMins === 0) return "Starting now";
-  if (diffMins < 60) return `Starts in ${diffMins} min`;
-  const hours = Math.floor(diffMins / 60);
-  const mins = diffMins % 60;
-  if (mins === 0) return `Starts in ${hours} hr`;
-  return `Starts in ${hours} hr ${mins} min`;
+
+  // diffMins is negative: the start time is in the past.
+  const minsAgo = Math.abs(diffMins);
+  if (minsAgo <= RECENTLY_STARTED_MINUTES) return "Started";
+
+  const elapsed = formatDuration(minsAgo);
+  return `Started ${elapsed} ago`;
+}
+
+/** Renders a positive minute count as a compact "2 days"/"3 hr"/"45 min" phrase. */
+function formatDuration(totalMins: number): string {
+  const days = Math.floor(totalMins / (60 * 24));
+  if (days >= 1) {
+    const hours = Math.floor((totalMins % (60 * 24)) / 60);
+    return hours === 0 ? `${days} day${days === 1 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"} ${hours} hr`;
+  }
+
+  const hours = Math.floor(totalMins / 60);
+  if (hours >= 1) {
+    const mins = totalMins % 60;
+    return mins === 0 ? `${hours} hr` : `${hours} hr ${mins} min`;
+  }
+
+  return `${totalMins} min`;
 }
 
 export function getCalendarDays(monthDate: Date): Date[] {

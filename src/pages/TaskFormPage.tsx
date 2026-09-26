@@ -146,10 +146,19 @@ export function TaskFormPage() {
     if (!endTime) e.endTime = "End time is required";
 
     if (startTime && endTime) {
+      /*
+       * Cross-midnight tasks (23:00 -> 01:00) are not supported: the database
+       * rejects them (`end_datetime > start_datetime`, `duration_minutes > 0`),
+       * and a night-time task would silently fail to save with a raw constraint
+       * error. Caught here with a message the user can act on.
+       */
       const [sh, sm] = startTime.split(":").map(Number);
       const [eh, em] = endTime.split(":").map(Number);
-      if (sh * 60 + sm >= eh * 60 + em) {
-        e.endTime = "End time must be after start time";
+      if (sh * 60 + sm === eh * 60 + em) {
+        e.endTime = "Start and end time must be different";
+      } else if (sh * 60 + sm > eh * 60 + em) {
+        e.endTime =
+          "End time must be after start time. Tasks that end the next day are not supported yet.";
       }
     }
 

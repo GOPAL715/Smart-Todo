@@ -2,7 +2,7 @@ import { supabase } from "@/services/supabase";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import type { Task, TaskWithRelations, TaskReminder, TaskStatus, TaskPriority, Recurrence } from "@/types";
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
-import { DEFAULT_TIMEZONE, toUtcIso, localDateStr } from "@/utils/dateTime";
+import { DEFAULT_TIMEZONE, toUtcIso, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { attachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks } from "@/services/subtaskService";
 export interface CreateTaskInput {
@@ -52,16 +52,87 @@ function mapRow(row: TaskRow): Task {
   return { ...row };
 }
 
-export async function createTask(input: CreateTaskInput, userId: string, timezone: string = DEFAULT_TIMEZONE): Promise<Task> {
-  const dateObj = new Date(input.taskDate + "T00:00:00");
-  const startDatetime = toUtcIso(dateObj, input.startTime, timezone);
-  const endDatetime = toUtcIso(dateObj, input.endTime, timezone);
+/** The persisted schedule columns, which must always be written as a consistent set. */
+export interface TaskScheduleUpdate {
+  task_date: string;
+  start_time: string;
+  end_time: string;
+  start_datetime: string;
+  end_datetime: string;
+  duration_minutes: number;
+}
 
-  const [sh, sm] = input.startTime.split(":").map(Number);
-  const [eh, em] = input.endTime.split(":").map(Number);
-  const durationMinutes = eh * 60 + em - (sh * 60 + sm);
+/**
+ * Builds the schedule columns from a complete `date + start + end` tuple.
+ *
+ * Two invariants are enforced here rather than at the database, because the
+ * failure is opaque when it reaches Postgres:
+ *
+ * 1. **Cross-midnight tasks are not supported.** SmartTodo has no notion of an
+ *    end on the following day, so `23:00 -> 01:00` cannot be represented. The
+ *    schema actively forbids it (`CHECK (end_datetime > start_datetime)` and
+ *    `CHECK (duration_minutes > 0)` from migration 023), so this is an existing
+ *    constraint being made explicit, not a new rule. Attempting it previously
+ *    produced a negative duration and a raw constraint error.
+ * 2. **Start and end must differ**, so duration is always strictly positive.
+ *
+ * @throws Error with user-safe copy when the tuple is invalid.
+ */
+export function buildTaskSchedule(
+  taskDate: string,
+  startTime: string,
+  endTime: string,
+  timezone: string = DEFAULT_TIMEZONE
+): TaskScheduleUpdate {
+  const startMinutes = parseHhMm(startTime);
+  const endMinutes = parseHhMm(endTime);
+
+  if (startMinutes === null || endMinutes === null) {
+    throw new Error("Start and end time must be in HH:mm format.");
+  }
+
+  if (startMinutes === endMinutes) {
+    throw new Error("Start and end time must be different.");
+  }
+
+  if (endMinutes < startMinutes) {
+    throw new Error(
+      "End time must be after start time. Tasks that end the next day are not supported yet."
+    );
+  }
+
+  const dateObj = new Date(taskDate + "T00:00:00");
+  if (Number.isNaN(dateObj.getTime())) {
+    throw new Error("Please choose a valid date.");
+  }
+
+  return {
+    task_date: taskDate,
+    start_time: startTime,
+    end_time: endTime,
+    start_datetime: toUtcIso(dateObj, startTime, timezone),
+    end_datetime: toUtcIso(dateObj, endTime, timezone),
+    duration_minutes: endMinutes - startMinutes,
+  };
+}
+
+/** Parses "HH:mm" into minutes past midnight, or null when malformed. */
+function parseHhMm(time: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+export async function createTask(input: CreateTaskInput, userId: string, timezone: string = DEFAULT_TIMEZONE): Promise<Task> {
   const reminderOffsets = [...new Set(input.reminderOffsets)];
   assertSupportedReminderOffsets(reminderOffsets);
+
+  // Validated before any write, so an invalid schedule can never reach the
+  // database and fail there with a constraint error the user cannot interpret.
+  const schedule = buildTaskSchedule(input.taskDate, input.startTime, input.endTime, timezone);
 
   const { data, error } = await supabase
     .from("tasks")
@@ -69,12 +140,12 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
       user_id: userId,
       title: input.title,
       description: input.description ?? null,
-      task_date: input.taskDate,
-      start_time: input.startTime,
-      end_time: input.endTime,
-      start_datetime: startDatetime,
-      end_datetime: endDatetime,
-      duration_minutes: durationMinutes,
+      task_date: schedule.task_date,
+      start_time: schedule.start_time,
+      end_time: schedule.end_time,
+      start_datetime: schedule.start_datetime,
+      end_datetime: schedule.end_datetime,
+      duration_minutes: schedule.duration_minutes,
       priority: input.priority,
       category: input.category ?? null,
       status: "PENDING",
@@ -154,17 +225,32 @@ export function buildTaskUpdate(input: UpdateTaskInput): Record<string, unknown>
     updates.reminder_offsets = reminderOffsets;
   }
 
-  if (input.taskDate !== undefined && input.startTime !== undefined && input.endTime !== undefined) {
-    const dateObj = new Date(input.taskDate + "T00:00:00");
+  /*
+   * Schedule fields are written as one atomic set.
+   *
+   * The previous implementation applied them only when all three of
+   * `taskDate`, `startTime` and `endTime` were present. A caller that supplied
+   * a new date without times therefore had that date silently dropped, while
+   * the UI showed the change — the change simply never persisted.
+   *
+   * Partial input is now rejected outright rather than merged. Merging would
+   * require reading the task's existing row first, which `buildTaskUpdate` is a
+   * pure function and cannot do, and every real caller (the edit form) already
+   * sends the complete tuple. Failing loudly is the safer contract: it can never
+   * leave `task_date`, `start_datetime` and `end_datetime` inconsistent.
+   */
+  const scheduleFields = [input.taskDate, input.startTime, input.endTime].filter(
+    (value) => value !== undefined
+  );
+
+  if (scheduleFields.length > 0) {
+    if (scheduleFields.length < 3) {
+      throw new Error(
+        "A task's date, start time and end time must be provided together."
+      );
+    }
     const timezone = input.timezone ?? DEFAULT_TIMEZONE;
-    updates.start_datetime = toUtcIso(dateObj, input.startTime, timezone);
-    updates.end_datetime = toUtcIso(dateObj, input.endTime, timezone);
-    updates.task_date = input.taskDate;
-    updates.start_time = input.startTime;
-    updates.end_time = input.endTime;
-    const [sh, sm] = input.startTime.split(":").map(Number);
-    const [eh, em] = input.endTime.split(":").map(Number);
-    updates.duration_minutes = eh * 60 + em - (sh * 60 + sm);
+    Object.assign(updates, buildTaskSchedule(input.taskDate!, input.startTime!, input.endTime!, timezone));
   }
 
   return updates;
@@ -175,6 +261,16 @@ export function getOwnedTasks(tasks: Task[], userId: string | undefined): Task[]
 }
 
 export async function updateTask(taskId: string, input: UpdateTaskInput): Promise<Task> {
+  /*
+   * When the caller is also changing tags, authorization is resolved BEFORE any
+   * write. Previously the task row was updated first and permission was only
+   * discovered afterwards, so a denied attempt could still have persisted a
+   * partial change before failing.
+   */
+  if (input.tagIds !== undefined) {
+    await assertCanEditTaskTags(taskId);
+  }
+
   const updates = buildTaskUpdate(input);
 
   const { data, error } = await supabase
@@ -198,16 +294,31 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
 }
 
 /**
- * Makes a task's tag links match `tagIds` exactly. Only the caller's own tags
- * can be linked (the `tags` select policy is RLS-scoped to the signed-in
- * user), so unknown or foreign ids are dropped instead of failing the save.
- * Row-level security on `task_tags` still decides whether a collaborator may
- * write at all, and those failures surface to the caller.
+ * Makes a task's tag links match `tagIds` exactly.
+ *
+ * Authorization is resolved up front, before any write, using the same
+ * `get_task_access` RPC the rest of the app relies on (added in migration 015).
+ * Previously the function discovered it had no permission only when an RLS
+ * policy rejected a write, which could happen *after* some tags had already
+ * been attached — leaving a partially updated task.
+ *
+ * A VIEW collaborator, or anyone with no relationship to the task, is now
+ * rejected before the first mutation. This does not replace or weaken RLS: the
+ * database policies remain the enforcement boundary, and the explicit check
+ * exists so the user gets a clear message instead of a mid-loop failure.
+ *
+ * The writes themselves are still individual statements, because the app has no
+ * transactional RPC for this and adding one would mean a schema change. The
+ * up-front permission check plus RLS makes a partial application unlikely, and
+ * a failure is reported to the caller rather than swallowed.
  */
 async function syncTaskTags(taskId: string, tagIds: string[]): Promise<void> {
   const uniqueIds = [...new Set(tagIds)];
   const idCandidates = uniqueIds.length > 0 ? uniqueIds : ["00000000-0000-0000-0000-000000000000"];
 
+  // The `tags` select policy is RLS-scoped to the signed-in user, so this can
+  // only ever return the caller's own tags. Unknown or foreign ids are dropped
+  // rather than failing the save.
   const { data: ownTags, error: ownError } = await supabase
     .from("tags")
     .select("id")
@@ -222,6 +333,8 @@ async function syncTaskTags(taskId: string, tagIds: string[]): Promise<void> {
   if (linkError) throw new Error(getServiceErrorMessage(linkError));
   const current = new Set((linkRows ?? []).map((row: { tag_id: string }) => row.tag_id));
 
+  // Attach first, detach second: if a single statement fails, the task is left
+  // with a superset of its tags rather than silently losing them.
   for (const tagId of allowed) {
     if (!current.has(tagId)) await attachTag(taskId, tagId);
   }
@@ -234,6 +347,25 @@ async function syncTaskTags(taskId: string, tagIds: string[]): Promise<void> {
         .eq("tag_id", tagId);
       if (detachError) throw new Error(getServiceErrorMessage(detachError));
     }
+  }
+}
+
+/**
+ * Confirms the caller may modify this task's tag links.
+ *
+ * @throws Error with user-safe copy when the caller is not the owner and does
+ * not hold an EDIT share. A VIEW share is rejected here rather than by RLS.
+ */
+async function assertCanEditTaskTags(taskId: string): Promise<void> {
+  const { data, error } = await supabase.rpc("get_task_access", { p_task_id: taskId });
+  if (error) throw new Error(getServiceErrorMessage(error));
+
+  const access = data as { ok?: boolean; is_owner?: boolean; permission?: string } | null;
+  if (!access?.ok) {
+    throw new Error("You do not have permission to change this task.");
+  }
+  if (!access.is_owner && access.permission !== "EDIT") {
+    throw new Error("You do not have permission to change this task.");
   }
 }
 
@@ -383,6 +515,55 @@ export async function getTasksByDate(date: string): Promise<Task[]> {
     .order("start_datetime", { ascending: true });
   if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
+}
+
+/**
+ * All tasks whose `task_date` falls inside the inclusive `YYYY-MM-DD` range.
+ *
+ * The calendar used to call `getTasksByDate` once per grid cell, which is 35–42
+ * sequential round trips to render a single month. This performs one range
+ * query instead. It is the same `tasks` select under the same RLS policies, so
+ * the caller still sees exactly the rows their permissions allow.
+ */
+export async function getTasksByDateRange(startDate: string, endDate: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .gte("task_date", startDate)
+    .lte("task_date", endDate)
+    .order("start_datetime", { ascending: true });
+  if (error) throw new Error(getServiceErrorMessage(error));
+  return (data ?? []).map(mapRow);
+}
+
+/** Inclusive first/last `YYYY-MM-DD` keys covered by a set of calendar days. */
+export function calendarRange(days: Date[]): { start: string; end: string } | null {
+  if (days.length === 0) return null;
+  return {
+    start: calendarDateKey(days[0]),
+    end: calendarDateKey(days[days.length - 1]),
+  };
+}
+
+/**
+ * Buckets tasks by their `task_date` for calendar rendering.
+ *
+ * Pure and exported so the grouping rule is unit testable without a DOM or a
+ * network call. Days with no tasks are simply absent from the map, which is what
+ * lets an empty day render normally.
+ */
+export function groupTasksByDate(tasks: Task[]): Record<string, Task[]> {
+  const map: Record<string, Task[]> = {};
+  for (const task of tasks) {
+    if (!task.task_date) continue;
+    const bucket = map[task.task_date];
+    if (bucket) {
+      bucket.push(task);
+    } else {
+      map[task.task_date] = [task];
+    }
+  }
+  return map;
 }
 
 export async function searchTasks(query: string): Promise<Task[]> {

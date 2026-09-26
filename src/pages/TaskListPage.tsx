@@ -70,14 +70,23 @@ export function TaskListPage() {
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onError: () => {
+      setTaskError("Could not start task. Please try again.");
+    },
   });
   const completeMutation = useMutation({
     mutationFn: (task: Task) => completeTask(task.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onError: () => {
+      setTaskError("Could not complete task. Please try again.");
+    },
   });
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onError: () => {
+      setTaskError("Could not cancel task. Please try again.");
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (task: Task) => deleteTask(task.id),
