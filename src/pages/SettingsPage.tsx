@@ -69,7 +69,7 @@ export function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <button onClick={() => navigate(-1)} className="btn-ghost mb-4 text-sm">
+      <button type="button" onClick={() => navigate(-1)} className="btn-ghost mb-4 text-sm">
         <ArrowLeft size={16} />
         Back
       </button>
@@ -92,7 +92,9 @@ export function SettingsPage() {
             return (
               <button
                 key={opt.value}
+                type="button"
                 onClick={() => setMode(opt.value)}
+                aria-pressed={active}
                 className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
                   active
                     ? "border-primary-500 bg-primary-50 dark:bg-primary-950"
@@ -197,7 +199,7 @@ export function SettingsPage() {
         )}
 
         <div className="flex gap-3">
-          <button onClick={handleSave} disabled={saving || selected === profile?.timezone} className="btn-primary">
+          <button type="button" onClick={handleSave} disabled={saving || selected === profile?.timezone} className="btn-primary">
             {saving ? "Saving..." : "Save timezone"}
           </button>
           <Link to="/app/dashboard" className="btn-secondary">Done</Link>

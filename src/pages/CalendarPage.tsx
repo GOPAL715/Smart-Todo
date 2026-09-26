@@ -8,6 +8,7 @@ import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, 
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, RotateCw } from "lucide-react";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
+import { getDayCellLabel } from "@/utils/notificationPanel";
 import type { Task } from "@/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -73,14 +74,28 @@ export function CalendarPage() {
               {format(monthDate, "MMMM yyyy")}
             </h2>
             <div className="flex gap-1">
-              <button onClick={() => setMonthDate(subMonths(monthDate, 1))} className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800">
-                <ChevronLeft size={18} className="text-neutral-600 dark:text-neutral-400" />
+              <button
+                type="button"
+                onClick={() => setMonthDate(subMonths(monthDate, 1))}
+                className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                aria-label="Previous month"
+              >
+                <ChevronLeft size={18} className="text-neutral-600 dark:text-neutral-400" aria-hidden="true" />
               </button>
-              <button onClick={() => setMonthDate(new Date())} className="px-3 py-1.5 text-sm rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+              <button
+                type="button"
+                onClick={() => setMonthDate(new Date())}
+                className="px-3 py-1.5 text-sm rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
+              >
                 Today
               </button>
-              <button onClick={() => setMonthDate(addMonths(monthDate, 1))} className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800">
-                <ChevronRight size={18} className="text-neutral-600 dark:text-neutral-400" />
+              <button
+                type="button"
+                onClick={() => setMonthDate(addMonths(monthDate, 1))}
+                className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                aria-label="Next month"
+              >
+                <ChevronRight size={18} className="text-neutral-600 dark:text-neutral-400" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -138,7 +153,10 @@ export function CalendarPage() {
               return (
                 <button
                   key={dateStr}
+                  type="button"
                   onClick={() => setSelectedDate(day)}
+                  aria-label={getDayCellLabel(day, dayTasks.length, (d) => format(d, "d MMMM yyyy"))}
+                  aria-pressed={isSelected}
                   className={`min-h-[60px] sm:min-h-[80px] p-1.5 rounded-lg border transition-all text-left ${
                     isSelected
                       ? "border-primary-500 bg-primary-50 dark:bg-primary-950"

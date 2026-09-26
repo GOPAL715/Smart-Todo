@@ -64,7 +64,7 @@ export function TaskDetailPage() {
   const detachTagMutation = useMutation({ mutationFn: (tagId: string) => detachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
 
   if (isLoading) return <div className="max-w-2xl mx-auto p-8 text-center text-neutral-400">Loading task...</div>;
-  if (error || !task) return <div className="max-w-2xl mx-auto p-8 text-center"><p className="text-neutral-500 dark:text-neutral-400 mb-4">Task not found.</p><button onClick={() => navigate("/app/tasks")} className="btn-secondary">Back to Tasks</button></div>;
+  if (error || !task) return <div className="max-w-2xl mx-auto p-8 text-center"><p className="text-neutral-500 dark:text-neutral-400 mb-4">Task not found.</p><button type="button" onClick={() => navigate("/app/tasks")} className="btn-secondary">Back to Tasks</button></div>;
 
   const canStart = canEdit && task.status === "PENDING";
   const canComplete = canEdit && (task.status === "PENDING" || task.status === "IN_PROGRESS");
@@ -111,7 +111,7 @@ export function TaskDetailPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-5">
       {taskError && <div role="alert" className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">{taskError}</div>}
-      <button onClick={() => navigate(-1)} className="btn-ghost text-sm"><ArrowLeft size={16} /> Back</button>
+      <button type="button" onClick={() => navigate(-1)} className="btn-ghost text-sm"><ArrowLeft size={16} /> Back</button>
 
       <div className="card p-6">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -143,17 +143,34 @@ export function TaskDetailPage() {
             {subtasks.map((s: Subtask) => (
               <div key={s.id} className="flex items-center gap-3">
                 {canEdit ? (
-                  <button onClick={() => handleToggleSubtask(s)} className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`} aria-label={s.is_completed ? "Mark incomplete" : "Mark complete"}>
-                    {s.is_completed && <Check size={12} className="text-white" />}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubtask(s)}
+                    className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`}
+                    aria-label={s.is_completed ? `Mark "${s.title}" as not complete` : `Mark "${s.title}" as complete`}
+                    aria-pressed={s.is_completed}
+                  >
+                    {s.is_completed && <Check size={12} className="text-white" aria-hidden="true" />}
                   </button>
                 ) : (
-                  <span className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`} aria-label={s.is_completed ? "Completed" : "Not completed"}>
-                    {s.is_completed && <Check size={12} className="text-white" />}
+                  <span
+                    className={`w-5 h-5 rounded border-2 flex items-center justify-center ${s.is_completed ? "bg-primary-600 border-primary-600" : "border-neutral-300 dark:border-neutral-600"}`}
+                    role="img"
+                    aria-label={s.is_completed ? "Completed" : "Not completed"}
+                  >
+                    {s.is_completed && <Check size={12} className="text-white" aria-hidden="true" />}
                   </span>
                 )}
                 <span className={`text-sm ${s.is_completed ? "line-through text-neutral-400" : "text-neutral-700 dark:text-neutral-300"}`}>{s.title}</span>
                 {canEdit && (
-                  <button onClick={() => handleDeleteSubtask(s.id)} className="ml-auto text-neutral-400 hover:text-error-600"><TrashIcon size={14} /></button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteSubtask(s.id)}
+                    className="ml-auto p-1 rounded text-neutral-400 hover:text-error-600"
+                    aria-label={`Delete subtask: ${s.title}`}
+                  >
+                    <TrashIcon size={14} aria-hidden="true" />
+                  </button>
                 )}
               </div>
             ))}
@@ -161,7 +178,7 @@ export function TaskDetailPage() {
           {canEdit && (
             <div className="flex gap-2">
               <input type="text" className="input flex-1" placeholder="Add subtask..." value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSubtask()} />
-              <button onClick={handleAddSubtask} disabled={!newSubtaskTitle.trim()} className="btn-secondary"><Plus size={16} /> Add</button>
+              <button type="button" onClick={handleAddSubtask} disabled={!newSubtaskTitle.trim()} className="btn-secondary"><Plus size={16} /> Add</button>
             </div>
           )}
           {!canEdit && <p className="text-xs text-neutral-400">Read-only subtasks</p>}
@@ -176,7 +193,16 @@ export function TaskDetailPage() {
             {tags.map((t: Tag) => (
               <span key={t.id} className="badge bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-400 flex items-center gap-1">
                 {t.name}
-                {canEdit && <button onClick={() => handleRemoveTag(t.id)} className="ml-1 hover:text-error-600"><TrashIcon size={12} /></button>}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(t.id)}
+                    className="ml-1 p-0.5 rounded hover:text-error-600"
+                    aria-label={`Remove tag: ${t.name}`}
+                  >
+                    <TrashIcon size={12} aria-hidden="true" />
+                  </button>
+                )}
               </span>
             ))}
           </div>
@@ -188,9 +214,9 @@ export function TaskDetailPage() {
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
-              <button onClick={() => { if (newTagInput) handleAddTag(newTagInput); }} className="btn-secondary">Add</button>
+              <button type="button" onClick={() => { if (newTagInput) handleAddTag(newTagInput); }} className="btn-secondary">Add</button>
               <input type="text" className="input w-32" placeholder="New tag..." value={newTagInput} onChange={(e) => setNewTagInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleCreateTag()} />
-              <button onClick={handleCreateTag} className="btn-secondary">Create</button>
+              <button type="button" onClick={handleCreateTag} className="btn-secondary">Create</button>
             </div>
           )}
         </div>
@@ -233,11 +259,11 @@ export function TaskDetailPage() {
       <div className="card p-6">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Actions</h2>
         <div className="flex flex-wrap gap-2">
-          {canStart && <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending} className="btn-primary"><Play size={16} /> Start</button>}
-          {canComplete && <button onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending} className="btn bg-success-600 text-white px-4 py-2 hover:bg-success-700"><CheckCircle2 size={16} /> Complete</button>}
-          {canCancel && <button onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending} className="btn-secondary"><XCircle size={16} /> Cancel</button>}
-          {canEdit && <button onClick={() => navigate(`/app/tasks/${task.id}/edit`)} className="btn-secondary"><Edit size={16} /> Edit</button>}
-          {isOwner && <button onClick={() => { if (confirm("Delete this task?")) deleteMutation.mutate(); }} disabled={deleteMutation.isPending} className="btn-danger"><Trash2 size={16} /> Delete</button>}
+          {canStart && <button type="button" onClick={() => startMutation.mutate()} disabled={startMutation.isPending} className="btn-primary"><Play size={16} /> Start</button>}
+          {canComplete && <button type="button" onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending} className="btn bg-success-600 text-white px-4 py-2 hover:bg-success-700"><CheckCircle2 size={16} /> Complete</button>}
+          {canCancel && <button type="button" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending} className="btn-secondary"><XCircle size={16} /> Cancel</button>}
+          {canEdit && <button type="button" onClick={() => navigate(`/app/tasks/${task.id}/edit`)} className="btn-secondary"><Edit size={16} /> Edit</button>}
+          {isOwner && <button type="button" onClick={() => { if (confirm("Delete this task?")) deleteMutation.mutate(); }} disabled={deleteMutation.isPending} className="btn-danger"><Trash2 size={16} /> Delete</button>}
         </div>
       </div>
 

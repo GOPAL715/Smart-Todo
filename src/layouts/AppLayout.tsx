@@ -1,24 +1,31 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, LayoutDashboard, ListTodo, Calendar, LogOut, Plus, CheckCheck, X, Clock, Settings, WifiOff } from "lucide-react";
+import { Bell, LayoutDashboard, ListTodo, Calendar, LogOut, Plus, CheckCheck, X, Clock, Settings, WifiOff, Menu, AlertTriangle, RotateCw } from "lucide-react";
 import { listNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from "@/services/notificationService";
 import { queryKeys } from "@/services/queryKeys";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import type { Notification } from "@/types";
 import { formatDateTime } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useDismissable } from "@/hooks/useDismissable";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
+import { getNotificationButtonLabel, getNotificationPanelState } from "@/utils/notificationPanel";
 
 export function AppLayout() {
   const { profile, user, signOut } = useAuth();
   const userTimezone = useUserTimezone();
   const isOnline = useOnlineStatus();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [notifOpen, setNotifOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const notifButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const { data: unreadCount = 0 } = useQuery({
     queryKey: queryKeys.notificationUnreadCount(user?.id),
@@ -27,7 +34,13 @@ export function AppLayout() {
     enabled: !!user,
   });
 
-  const { data: notifications = [] } = useQuery({
+  const {
+    data: notifications = [],
+    isLoading: notifLoading,
+    isError: notifError,
+    error: notifLoadError,
+    refetch: refetchNotifications,
+  } = useQuery({
     queryKey: queryKeys.notificationList(user?.id),
     queryFn: listNotifications,
     enabled: notifOpen && !!user,
@@ -54,6 +67,18 @@ export function AppLayout() {
     },
   });
 
+  /* Single source of truth for what the panel shows, so "loading" and "error"
+     can never collapse into the "no notifications" empty state. */
+  const notifState = getNotificationPanelState({
+    isLoading: notifLoading,
+    isError: notifError,
+    count: notifications.length,
+  });
+
+  /* Escape-to-close and focus restoration for both overlay surfaces. */
+  useDismissable(notifOpen, () => setNotifOpen(false), notifButtonRef);
+  useDismissable(sidebarOpen, () => setSidebarOpen(false), menuButtonRef);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
@@ -63,6 +88,11 @@ export function AppLayout() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // A completed navigation should never leave the drawer covering the new page.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -78,8 +108,12 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex">
-      {/* Sidebar - desktop */}
-      <aside className={`fixed lg:sticky top-0 left-0 h-screen w-64 bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col z-30 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+      {/* Sidebar - desktop sticky, mobile drawer */}
+      <aside
+        id="app-navigation"
+        aria-label="Main navigation"
+        className={`fixed lg:sticky top-0 left-0 h-screen w-64 bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col z-30 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+      >
         <div className="p-6 border-b border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center gap-2 text-lg font-semibold text-primary-600">
             <Bell size={22} />
@@ -117,16 +151,20 @@ export function AppLayout() {
               <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{profile?.email}</p>
             </div>
           </div>
-          <button onClick={handleSignOut} className="btn-ghost w-full justify-start text-sm">
+          <button type="button" onClick={handleSignOut} className="btn-ghost w-full justify-start text-sm">
             <LogOut size={16} />
             Sign out
           </button>
         </div>
       </aside>
 
-      {/* Sidebar overlay - mobile */}
+      {/* Sidebar overlay - mobile. aria-hidden: it is a backdrop, not content. */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/30 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/30 z-20 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
       )}
 
       {/* Main content */}
@@ -135,10 +173,15 @@ export function AppLayout() {
         <header className="sticky top-0 z-10 bg-white dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800 px-4 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
+              ref={menuButtonRef}
+              type="button"
               className="lg:hidden p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              onClick={() => setSidebarOpen(true)}
+              onClick={() => setSidebarOpen((v) => !v)}
+              aria-label="Open navigation menu"
+              aria-expanded={sidebarOpen}
+              aria-controls="app-navigation"
             >
-              <ListTodo size={20} className="text-neutral-600 dark:text-neutral-400" />
+              <Menu size={20} className="text-neutral-600 dark:text-neutral-400" />
             </button>
           </div>
 
@@ -154,23 +197,38 @@ export function AppLayout() {
             {/* Notifications */}
             <div className="relative" ref={notifRef}>
               <button
-                onClick={() => setNotifOpen(!notifOpen)}
+                ref={notifButtonRef}
+                type="button"
+                onClick={() => setNotifOpen((v) => !v)}
                 className="relative p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                aria-label={getNotificationButtonLabel(unreadCount)}
+                aria-expanded={notifOpen}
+                aria-controls="notifications-panel"
+                aria-haspopup="dialog"
               >
                 <Bell size={20} className="text-neutral-600 dark:text-neutral-400" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-error-500 text-white text-xs font-semibold rounded-full flex items-center justify-center">
+                  <span
+                    className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-error-500 text-white text-xs font-semibold rounded-full flex items-center justify-center"
+                    aria-hidden="true"
+                  >
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
               </button>
 
               {notifOpen && (
-                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 max-h-[70vh] bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-lg flex flex-col animate-slide-down">
+                <div
+                  id="notifications-panel"
+                  role="dialog"
+                  aria-label="Notifications"
+                  className="absolute right-0 top-full mt-2 w-80 sm:w-96 max-h-[70vh] bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-lg flex flex-col animate-slide-down"
+                >
                   <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
                     <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Notifications</h3>
                     {notifications.length > 0 && (
                       <button
+                        type="button"
                         onClick={() => markAllReadMutation.mutate()}
                         className="text-xs text-primary-600 dark:text-primary-400 font-medium hover:underline flex items-center gap-1"
                       >
@@ -181,47 +239,86 @@ export function AppLayout() {
                   </div>
 
                   <div className="flex-1 overflow-y-auto">
-                    {notifications.length === 0 ? (
+                    {/* Explicit states: "no notifications" must not be shown
+                        while the request is still in flight or after a failure. */}
+                    {notifState === "loading" && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="p-8 text-center text-neutral-400 flex flex-col items-center gap-2"
+                      >
+                        <span className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm">Loading notifications...</p>
+                      </div>
+                    )}
+
+                    {notifState === "error" && (
+                      <div role="alert" className="p-6 text-center">
+                        <AlertTriangle size={24} className="mx-auto mb-2 text-error-500" />
+                        <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
+                          {getServiceErrorMessage(notifLoadError)}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void refetchNotifications()}
+                          className="btn-secondary"
+                        >
+                          <RotateCw size={14} />
+                          Try again
+                        </button>
+                      </div>
+                    )}
+
+                    {notifState === "empty" && (
                       <div className="p-8 text-center text-neutral-400">
-                        <Bell size={32} className="mx-auto mb-2 opacity-40" />
+                        <Bell size={32} className="mx-auto mb-2 opacity-40" aria-hidden="true" />
                         <p className="text-sm">No notifications yet</p>
                       </div>
-                    ) : (
-                      notifications.map((notif: Notification) => (
-                        <div
-                          key={notif.id}
-                          className={`p-4 border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors ${!notif.is_read ? "bg-primary-50/40 dark:bg-primary-950/40" : ""}`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{notif.title}</p>
-                              <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">{notif.message}</p>
-                              <p className="text-xs text-neutral-400 mt-1 flex items-center gap-1">
-                                <Clock size={12} />
-                                {formatDateTime(notif.created_at, userTimezone)}
-                              </p>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {!notif.is_read && (
+                    )}
+
+                    {notifState === "ready" && (
+                      <ul>
+                        {notifications.map((notif: Notification) => (
+                          <li
+                            key={notif.id}
+                            className={`p-4 border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors ${!notif.is_read ? "bg-primary-50/40 dark:bg-primary-950/40" : ""}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                                  {notif.title}
+                                  {!notif.is_read && <span className="sr-only"> (unread)</span>}
+                                </p>
+                                <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-0.5">{notif.message}</p>
+                                <p className="text-xs text-neutral-400 mt-1 flex items-center gap-1">
+                                  <Clock size={12} aria-hidden="true" />
+                                  {formatDateTime(notif.created_at, userTimezone)}
+                                </p>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                {!notif.is_read && (
+                                  <button
+                                    type="button"
+                                    onClick={() => markReadMutation.mutate(notif.id)}
+                                    className="p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400"
+                                    aria-label={`Mark "${notif.title}" as read`}
+                                  >
+                                    <CheckCheck size={14} aria-hidden="true" />
+                                  </button>
+                                )}
                                 <button
-                                  onClick={() => markReadMutation.mutate(notif.id)}
+                                  type="button"
+                                  onClick={() => deleteNotifMutation.mutate(notif.id)}
                                   className="p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400"
-                                  title="Mark as read"
+                                  aria-label={`Delete notification: ${notif.title}`}
                                 >
-                                  <CheckCheck size={14} />
+                                  <X size={14} aria-hidden="true" />
                                 </button>
-                              )}
-                              <button
-                                onClick={() => deleteNotifMutation.mutate(notif.id)}
-                                className="p-1 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-400"
-                                title="Delete"
-                              >
-                                <X size={14} />
-                              </button>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      ))
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 </div>

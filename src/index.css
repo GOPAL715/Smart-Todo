@@ -12,6 +12,19 @@
   body {
     @apply bg-neutral-50 text-neutral-900 font-sans dark:bg-neutral-950 dark:text-neutral-100;
   }
+
+  /*
+   * A single consistent keyboard-focus indicator (Phase 11C).
+   *
+   * Tailwind's preflight removes the browser default outline, so without this
+   * only elements that opt in show focus. It is defined once here so every
+   * interactive control is visible to keyboard users, and uses `:focus-visible`
+   * so it does not appear for mouse clicks. Controls that need a custom ring
+   * (the destructive delete button) override this locally.
+   */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-1 dark:ring-offset-neutral-950;
+  }
 }
 
 @layer components {

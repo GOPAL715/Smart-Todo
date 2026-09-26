@@ -98,32 +98,42 @@ export function TaskCard({ task, tags, onStart, onComplete, onCancel, showAction
         </div>
 
         {showActions && canManage && (task.status === "PENDING" || task.status === "IN_PROGRESS") && (
+          /*
+           * Nested inside the card's <Link>. `onClick` on the wrapper stops the
+           * click from activating the link, and `type="button"` stops an
+           * implicit form submission. The wrapper is a sibling of the link
+           * content rather than inside the anchor's text flow, so the buttons
+           * remain individually reachable by Tab.
+           */
           <div className="flex flex-col gap-1.5" onClick={(e) => e.preventDefault()}>
             {task.status === "PENDING" && onStart && (
               <button
+                type="button"
                 onClick={() => onStart(task)}
                 className="p-2 rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 dark:bg-primary-950 dark:text-primary-400 dark:hover:bg-primary-900 transition-colors"
-                title="Start task"
+                aria-label={`Start task: ${task.title}`}
               >
-                <Play size={16} />
+                <Play size={16} aria-hidden="true" />
               </button>
             )}
             {onComplete && (
               <button
+                type="button"
                 onClick={() => onComplete(task)}
                 className="p-2 rounded-lg bg-success-50 text-success-600 hover:bg-success-100 dark:bg-success-950 dark:text-success-400 dark:hover:bg-success-900 transition-colors"
-                title="Complete task"
+                aria-label={`Complete task: ${task.title}`}
               >
-                <CheckCircle2 size={16} />
+                <CheckCircle2 size={16} aria-hidden="true" />
               </button>
             )}
             {onCancel && (
               <button
+                type="button"
                 onClick={() => onCancel(task)}
                 className="p-2 rounded-lg bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700 transition-colors"
-                title="Cancel task"
+                aria-label={`Cancel task: ${task.title}`}
               >
-                <XCircle size={16} />
+                <XCircle size={16} aria-hidden="true" />
               </button>
             )}
           </div>

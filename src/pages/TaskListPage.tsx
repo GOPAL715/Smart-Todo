@@ -198,11 +198,17 @@ export function TaskListPage() {
             type="text"
             placeholder="Search by title..."
             className="input pl-9"
+            aria-label="Search tasks by title"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select className="input w-auto" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as TaskStatus | "")}>
+        <select
+          className="input w-auto"
+          value={statusFilter}
+          aria-label="Filter by status"
+          onChange={(e) => setStatusFilter(e.target.value as TaskStatus | "")}
+        >
           <option value="">All Statuses</option>
           <option value="PENDING">Pending</option>
           <option value="IN_PROGRESS">In Progress</option>
@@ -210,15 +216,25 @@ export function TaskListPage() {
           <option value="OVERDUE">Overdue</option>
           <option value="CANCELLED">Cancelled</option>
         </select>
-<select className="input w-auto" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "")}>
-              <option value="">All Priorities</option>
-              <option value="URGENT">Urgent</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-            </select>
+        <select
+          className="input w-auto"
+          value={priorityFilter}
+          aria-label="Filter by priority"
+          onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "")}
+        >
+          <option value="">All Priorities</option>
+          <option value="URGENT">Urgent</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
         {categories.length > 0 && (
-          <select className="input w-auto" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <select
+            className="input w-auto"
+            value={categoryFilter}
+            aria-label="Filter by category"
+            onChange={(e) => setCategoryFilter(e.target.value)}
+          >
             <option value="">All Categories</option>
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -273,13 +289,31 @@ export function TaskListPage() {
                 onCancel={cancelMutation.mutate}
                 canManage={canEditTask(task)}
               />
+              {/*
+                Delete control (P1-12).
+
+                It used to be `opacity-0 group-hover:opacity-100`, which made it
+                invisible until hover: unreachable by keyboard, and on touch
+                devices — where there is no hover — deleting a task was impossible
+                on a phone.
+
+                It is now always visible, shows a focus ring, and keeps an
+                explicit confirmation so a keyboard user cannot destroy a task by
+                tabbing into it and pressing Enter. Authorization is unchanged:
+                it still renders only for the task owner.
+              */}
               {!!user && task.user_id === user.id && (
                 <button
-                  onClick={() => deleteMutation.mutate(task)}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/80 dark:bg-neutral-800/80 text-neutral-400 hover:text-error-600 hover:bg-error-50 dark:hover:bg-error-950 dark:hover:text-error-400 opacity-0 group-hover:opacity-100 transition-all"
-                  title="Delete"
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Delete "${task.title}"? This cannot be undone.`)) {
+                      deleteMutation.mutate(task);
+                    }
+                  }}
+                  className="absolute top-2 right-2 p-2 rounded-lg bg-white/90 dark:bg-neutral-800/90 text-neutral-500 hover:text-error-600 hover:bg-error-50 dark:hover:bg-error-950 dark:text-neutral-400 dark:hover:text-error-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error-500 transition-colors"
+                  aria-label={`Delete task: ${task.title}`}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={14} aria-hidden="true" />
                 </button>
               )}
             </div>

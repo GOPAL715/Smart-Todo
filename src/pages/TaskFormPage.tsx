@@ -237,7 +237,7 @@ export function TaskFormPage() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <button onClick={() => navigate(-1)} className="btn-ghost mb-4 text-sm">
+      <button type="button" onClick={() => navigate(-1)} className="btn-ghost mb-4 text-sm">
         <ArrowLeft size={16} />
         Back
       </button>

@@ -33,7 +33,7 @@ export function ShareTaskPanel({
   onLeft,
 }: ShareTaskPanelProps) {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [email, setEmail] = useState("");
   const [permission, setPermission] = useState<SharePermission>("VIEW");
   const [feedback, setFeedback] = useState("");
@@ -52,7 +52,7 @@ export function ShareTaskPanel({
 
   const shareMutation = useMutation({
     mutationFn: ({ email: target, permission: perm }: { email: string; permission: SharePermission }) =>
-      shareTask(taskId, target, perm),
+      shareTask(taskId, target, perm, profile?.email ?? user?.email ?? null),
     onSuccess: (result) => {
       if (!result.ok) {
         setError(shareFailureMessage(result.reason));
@@ -202,6 +202,7 @@ export function ShareTaskPanel({
                   <select
                     className="input w-auto text-sm"
                     value={share.permission}
+                    aria-label={`Permission for ${share.name || share.email}`}
                     onChange={(e) =>
                       changePermissionMutation.mutate({
                         shareId: share.id,
@@ -214,12 +215,18 @@ export function ShareTaskPanel({
                     <option value="EDIT">{PERMISSION_LABELS.EDIT}</option>
                   </select>
                   <button
-                    onClick={() => revokeMutation.mutate(share.id)}
+                    type="button"
+                    onClick={() => {
+                      const who = share.name || share.email;
+                      if (window.confirm(`Remove access for ${who}?`)) {
+                        revokeMutation.mutate(share.id);
+                      }
+                    }}
                     disabled={revokeMutation.isPending}
                     className="p-2 rounded-lg bg-neutral-100 text-neutral-500 hover:bg-error-50 hover:text-error-600 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-error-950 dark:hover:text-error-400 transition-colors"
-                    title="Remove access"
+                    aria-label={`Remove access for ${share.name || share.email}`}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={14} aria-hidden="true" />
                   </button>
                 </div>
               </div>
