@@ -86,6 +86,7 @@ src/
 
 #### reminder_scheduler_runs
 - `id`, `request_id`, `fired_at`, `note` — one row per scheduled invocation, for health checks
+- Pruned to the last 30 days by `public.cleanup_reminder_scheduler_runs()` (migration 026), in 10,000-row batches, on the existing dispatch path — no extra cron job
 
 #### notifications
 - `id`, `user_id`, `task_id`, `title`, `message`
@@ -142,6 +143,11 @@ tick is skipped, the affected reminders simply stay `is_sent = false` and are pi
 a later tick. Every attempt is recorded in `public.reminder_scheduler_runs`, and the raw
 HTTP response for each attempt is kept in `net._http_response`, so a missed or failing run
 can be diagnosed after the fact. A failed tick delays a reminder; it does not drop it.
+
+For verification and recovery commands, see the operations runbook:
+[`supabase/ops/RUNBOOK.md`](supabase/ops/RUNBOOK.md), and run
+[`supabase/ops/health_check.sql`](supabase/ops/health_check.sql) for a read-only
+PASS/WARN/FAIL health report.
 
 **How idempotency prevents duplicates**
 
