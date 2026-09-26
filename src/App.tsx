@@ -13,6 +13,7 @@ import { SignupPage } from "@/pages/SignupPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { TaskListPage } from "@/pages/TaskListPage";
 import { TaskFormPage } from "@/pages/TaskFormPage";
+import { SmartTaskPage } from "@/pages/SmartTaskPage";
 import { TaskDetailPage } from "@/pages/TaskDetailPage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -73,6 +74,7 @@ function App() {
                     <Route path="dashboard" element={<DashboardPage />} />
                     <Route path="tasks" element={<TaskListPage />} />
                     <Route path="tasks/new" element={<TaskFormPage />} />
+      <Route path="tasks/smart" element={<SmartTaskPage />} />
                     <Route path="tasks/:id" element={<TaskDetailPage />} />
                     <Route path="tasks/:id/edit" element={<TaskFormPage />} />
                     <Route path="calendar" element={<CalendarPage />} />

@@ -116,6 +116,56 @@ export interface TaskReminder {
   created_at: string;
 }
 
+/**
+ * A parsed-but-unsaved task, produced by the task-intelligence parser.
+ *
+ * This is a *draft*: it is never written to the database on its own. Every field
+ * is optional because the parser leaves anything ambiguous unset rather than
+ * guessing, and the user completes the draft in the review screen before the
+ * normal task-creation flow runs.
+ *
+ * The field names deliberately mirror `CreateTaskInput` so the review screen can
+ * hand a validated draft straight to `createTask` without a translation layer.
+ */
+export interface TaskDraft {
+  /** Task title. Always present: a draft without a title is not reviewable. */
+  title: string;
+  description?: string;
+  /** `yyyy-MM-dd` in the user's configured timezone. Unset when ambiguous. */
+  taskDate?: string;
+  /** `HH:mm` wall-clock. Unset when the input named no time. */
+  startTime?: string;
+  endTime?: string;
+  /** The user's IANA zone; always set, never inferred from the browser. */
+  timezone: string;
+  priority: TaskPriority;
+  /** Minutes before start, using the existing `REMINDER_OFFSETS` values only. */
+  reminderOffsets: number[];
+  recurrence?: Recurrence | null;
+  /** Names of *existing* tags that matched. The user confirms before saving. */
+  suggestedTagNames: string[];
+}
+
+/**
+ * The outcome of parsing one piece of natural language.
+ *
+ * `unresolved` lists the fields the parser deliberately left blank, so the
+ * review screen can tell the user exactly what it needs from them instead of
+ * quietly defaulting.
+ */
+export interface ParsedTaskDraft {
+  draft: TaskDraft;
+  /** Field names the parser could not determine with confidence. */
+  unresolved: (keyof TaskDraft)[];
+  /** Human-readable notes, e.g. "Priority suggested from 'urgent'". */
+  notes: string[];
+}
+
+/** Result shape returned by every parser implementation. */
+export type ParseOutcome =
+  | { ok: true; value: ParsedTaskDraft }
+  | { ok: false; error: string };
+
 export interface Notification {
   id: string;
   user_id: string;

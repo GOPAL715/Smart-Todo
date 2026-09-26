@@ -8,7 +8,7 @@ import { localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useAuth } from "@/hooks/useAuthContext";
 import { TaskCard } from "@/components/ui/TaskCard";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TaskStatus, TaskPriority, SharedWithMe } from "@/types";
 
@@ -167,10 +167,21 @@ export function TaskListPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">Tasks</h1>
-        <Link to="/app/tasks/new" className="btn-primary">
-          <Plus size={16} />
-          New Task
-        </Link>
+        {/*
+          Two distinct entry points, deliberately side by side. "New Task" is the
+          existing manual form and is unchanged; "Describe a task" is the
+          intelligent draft flow, which always lands on a review screen.
+        */}
+        <div className="flex flex-wrap gap-2">
+          <Link to="/app/tasks/smart" className="btn-secondary">
+            <Sparkles size={16} />
+            Describe a task
+          </Link>
+          <Link to="/app/tasks/new" className="btn-primary">
+            <Plus size={16} />
+            New Task
+          </Link>
+        </div>
       </div>
 
       {/* Tabs */}
