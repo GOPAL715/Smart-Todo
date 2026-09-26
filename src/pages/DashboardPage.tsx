@@ -2,16 +2,22 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, getOwnedTasks, startTask, completeTask, cancelTask } from "@/services/taskService";
+import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, getAnalyticsTasks, getLifetimeTaskStats, startTask, completeTask, cancelTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
 import { queryKeys } from "@/services/queryKeys";
 import { TaskCard } from "@/components/ui/TaskCard";
-import { getGreeting, localDateStr, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "@/utils/dateTime";
+import {
+  getAnalyticsDateRange,
+  computeRangeAnalytics,
+  formatCycleTime,
+  ANALYTICS_RANGE_LABELS,
+  type AnalyticsRange,
+} from "@/utils/dashboardAnalytics";
+import { getGreeting, localDateStr } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users, Flag } from "lucide-react";
+import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users, Flag, RotateCw } from "lucide-react";
+import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import type { Task, SharedWithMe } from "@/types";
-
-type AnalyticsRange = "today" | "week" | "month";
 
 const RANGE_OPTIONS: { key: AnalyticsRange; label: string }[] = [
   { key: "today", label: "Today" },
@@ -28,11 +34,37 @@ export function DashboardPage() {
   const { data: todayTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "today"), queryFn: () => getTodayTasks(userTimezone), enabled: !!user });
   const { data: upcomingTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "upcoming"), queryFn: getUpcomingTasks, enabled: !!user });
   const { data: overdueTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "overdue"), queryFn: getOverdueTasks, enabled: !!user });
-  const { data: allTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "all"), queryFn: () => listTasks(), enabled: !!user });
-  const ownedTasks = useMemo(
-    () => getOwnedTasks(allTasks, user?.id),
-    [allTasks, user?.id]
-  );
+
+  /*
+   * Lifetime stat cards must be exact, so they are counted in Postgres via
+   * `count: exact, head: true` rather than derived from the UI task list below,
+   * which is capped by TASK_LIST_LIMIT. Deriving them from the capped list made
+   * totals silently under-report for any account with more than the cap's worth
+   * of tasks. See getLifetimeTaskStats.
+   */
+  const {
+    data: stats,
+    isError: isStatsError,
+    error: statsError,
+    isLoading: isStatsLoading,
+    isFetching: isStatsRefetching,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: queryKeys.lifetimeTaskStats(user?.id),
+    queryFn: () => getLifetimeTaskStats(user!.id),
+    enabled: !!user,
+  });
+
+  /*
+   * The remaining use of the task list on this page is the "Shared with me"
+   * cards, which need real task rows to render. That is a UI list, so the cap
+   * is correct here.
+   */
+  const { data: allTasks = [] } = useQuery({
+    queryKey: queryKeys.taskList(user?.id, "all"),
+    queryFn: () => listTasks(),
+    enabled: !!user,
+  });
 
   const { data: overview } = useQuery({
     queryKey: queryKeys.shareOverview(user?.id),
@@ -85,64 +117,66 @@ export function DashboardPage() {
     },
   });
 
-  const stats = {
-    total: ownedTasks.length,
-    completed: ownedTasks.filter((t) => t.status === "COMPLETED").length,
-    pending: ownedTasks.filter((t) => t.status === "PENDING").length,
-    inProgress: ownedTasks.filter((t) => t.status === "IN_PROGRESS").length,
-    overdue: ownedTasks.filter((t) => t.status === "OVERDUE").length,
-  };
-
-  // Productivity analytics cover only tasks owned by the signed-in user
-  // (listTasks scope); shared tasks never contribute to personal metrics.
+  // Productivity analytics cover only tasks owned by the signed-in user;
+  // shared tasks never contribute to personal metrics.
   const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("week");
 
-  const range = useMemo(() => {
-    const todayStr = localDateStr(new Date(), userTimezone);
-    const [y, m, d] = todayStr.split("-").map(Number);
-    const calToday = new Date(y, m - 1, d);
-    let start = calToday;
-    let end = calToday;
-    if (analyticsRange === "week") {
-      start = startOfWeek(calToday, { weekStartsOn: 0 });
-      end = endOfWeek(calToday, { weekStartsOn: 0 });
-    } else if (analyticsRange === "month") {
-      start = startOfMonth(calToday);
-      end = endOfMonth(calToday);
-    }
-    return { startStr: format(start, "yyyy-MM-dd"), endStr: format(end, "yyyy-MM-dd") };
-  }, [analyticsRange, userTimezone]);
+  // Today is derived in the user's configured timezone, never browser-local.
+  const todayStr = useMemo(() => localDateStr(new Date(), userTimezone), [userTimezone]);
 
-  const rangeTasks = useMemo(
-    () => ownedTasks.filter((t) => t.task_date >= range.startStr && t.task_date <= range.endStr),
-    [ownedTasks, range],
+  const range = useMemo(
+    () => getAnalyticsDateRange(analyticsRange, todayStr),
+    [analyticsRange, todayStr]
   );
-  const rangeCompleted = useMemo(
-    () => rangeTasks.filter((t) => t.status === "COMPLETED").length,
-    [rangeTasks],
+
+  /*
+   * Bounded, minimal-column query for the selected range. Previously the panel
+   * re-filtered the entire task history on every range switch; now it transfers
+   * only the range's rows and only the six columns the metrics need.
+   */
+  const {
+    data: rangeRows = [],
+    isError: isAnalyticsError,
+    error: analyticsError,
+  } = useQuery({
+    queryKey: queryKeys.taskList(
+      user?.id,
+      `analytics-${range.startStr}-${range.endStr}`
+    ),
+    queryFn: () => getAnalyticsTasks(range.startStr, range.endStr),
+    enabled: !!user,
+  });
+
+  const rangeAnalytics = useMemo(() => {
+    const ownedInRange = rangeRows.filter((row) => row.user_id === user?.id);
+    return computeRangeAnalytics(ownedInRange);
+  }, [rangeRows, user?.id]);
+
+  const ownedInRangeCount = rangeRows.reduce(
+    (count, row) => (row.user_id === user?.id ? count + 1 : count),
+    0
   );
-  const rangeCompletionRate = rangeTasks.length > 0 ? Math.round((rangeCompleted / rangeTasks.length) * 100) : 0;
-  const rangeOverdue = rangeTasks.filter((t) => t.status === "OVERDUE").length;
-  const avgCycleMinutes = useMemo(() => {
-    const minutes = rangeTasks
-      .filter((t) => t.status === "COMPLETED")
-      .map((t) => (Date.parse(t.updated_at) - Date.parse(t.created_at)) / 60000)
-      .filter((value) => Number.isFinite(value) && value >= 0);
-    if (minutes.length === 0) return null;
-    return Math.round(minutes.reduce((sum, value) => sum + value, 0) / minutes.length);
-  }, [rangeTasks]);
 
-  const urgentTasks = ownedTasks.filter((t) => t.priority === "URGENT").length;
-  const highTasks = ownedTasks.filter((t) => t.priority === "HIGH").length;
+  const { completed: rangeCompleted, completionRate: rangeCompletionRate, overdue: rangeOverdue, avgCycleMinutes } =
+    rangeAnalytics;
 
-  const formatCycle = (minutes: number | null): string => {
-    if (minutes === null) return "—";
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
-  };
-  const rangeLabel = analyticsRange === "today" ? "today" : analyticsRange === "week" ? "this week" : "this month";
+  const urgentTasks = stats?.urgent ?? 0;
+  const highTasks = stats?.high ?? 0;
+
+  const rangeLabel = ANALYTICS_RANGE_LABELS[analyticsRange];
+
+  /*
+   * Greeting uses the hour in the user's configured timezone, not the browser's.
+   * The browser only supplies "now"; the displayed hour is resolved through
+   * Intl with an explicit zone, so a traveller on a different device timezone
+   * still gets the greeting for their own day. (P2-10 was already correct here;
+   * the surrounding date maths was not, and that is what this phase fixes.)
+   */
+  const loadErrorMessage = isStatsError
+    ? getServiceErrorMessage(statsError)
+    : isAnalyticsError
+      ? getServiceErrorMessage(analyticsError)
+      : "";
 
   const localHour = Number(
     new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: userTimezone })
@@ -173,13 +207,41 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {loadErrorMessage && (
+        <div
+          role="alert"
+          className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400"
+        >
+          <p className="flex items-start gap-2">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <span>{loadErrorMessage}</span>
+          </p>
+          <button type="button" onClick={() => void refetchStats()} className="btn-secondary mt-3">
+            <RotateCw size={16} />
+            Try again
+          </button>
+        </div>
+      )}
+
+      {isStatsLoading ? (
+        <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+          <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+          Loading your dashboard...
+        </div>
+      ) : (
+        <>
+          {isStatsRefetching && (
+            <p role="status" aria-live="polite" className="sr-only">
+              Refreshing dashboard data
+            </p>
+          )}
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="Total" value={stats.total} icon={<ListTodo size={18} />} color="primary" />
-        <StatCard label="Completed" value={stats.completed} icon={<CheckCircle2 size={18} />} color="success" />
-        <StatCard label="Pending" value={stats.pending} icon={<Clock size={18} />} color="neutral" />
-        <StatCard label="In Progress" value={stats.inProgress} icon={<TrendingUp size={18} />} color="primary" />
-        <StatCard label="Overdue" value={stats.overdue} icon={<AlertTriangle size={18} />} color="error" />
+        <StatCard label="Total" value={stats?.total ?? 0} icon={<ListTodo size={18} />} color="primary" />
+        <StatCard label="Completed" value={stats?.completed ?? 0} icon={<CheckCircle2 size={18} />} color="success" />
+        <StatCard label="Pending" value={stats?.pending ?? 0} icon={<Clock size={18} />} color="neutral" />
+        <StatCard label="In Progress" value={stats?.inProgress ?? 0} icon={<TrendingUp size={18} />} color="primary" />
+        <StatCard label="Overdue" value={stats?.overdue ?? 0} icon={<AlertTriangle size={18} />} color="error" />
       </div>
 
       {/* Productivity */}
@@ -217,7 +279,7 @@ export function DashboardPage() {
               <CheckCircle2 size={16} className="text-success-600" />
             </div>
             <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{rangeCompleted}</p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">of {rangeTasks.length} scheduled</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">of {ownedInRangeCount} scheduled</p>
           </div>
           <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
             <div className="flex items-center justify-between mb-1">
@@ -240,7 +302,7 @@ export function DashboardPage() {
               <span className="text-xs text-neutral-500 dark:text-neutral-400">Avg. completion</span>
               <Clock size={16} className="text-primary-600" />
             </div>
-            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{formatCycle(avgCycleMinutes)}</p>
+            <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{formatCycleTime(avgCycleMinutes)}</p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">created to completed</p>
           </div>
         </div>
@@ -255,7 +317,7 @@ export function DashboardPage() {
         >
           <div className="flex justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
             <span>Completion progress</span>
-            <span>{rangeCompleted} of {rangeTasks.length} tasks</span>
+            <span>{rangeCompleted} of {ownedInRangeCount} tasks</span>
           </div>
           <div className="w-full bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
             <div className="bg-success-600 h-2 rounded-full transition-all duration-500" style={{ width: `${rangeCompletionRate}%` }} />
@@ -380,6 +442,8 @@ export function DashboardPage() {
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

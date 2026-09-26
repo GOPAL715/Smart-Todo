@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getTags, createTag } from "@/services/tagService";
+import { validateTimeRange } from "@/utils/timeInput";
 import { queryKeys } from "@/services/queryKeys";
 import type { Tag, TaskPriority, Recurrence } from "@/types";
 
@@ -147,18 +148,14 @@ export function TaskFormPage() {
 
     if (startTime && endTime) {
       /*
-       * Cross-midnight tasks (23:00 -> 01:00) are not supported: the database
-       * rejects them (`end_datetime > start_datetime`, `duration_minutes > 0`),
-       * and a night-time task would silently fail to save with a raw constraint
-       * error. Caught here with a message the user can act on.
+       * Format first, then ordering. The database stores start_time/end_time as
+       * free text and derives duration_minutes from them, so a malformed value
+       * must never reach the backend. Cross-midnight is rejected because the
+       * schema requires end_datetime > start_datetime and duration_minutes > 0.
        */
-      const [sh, sm] = startTime.split(":").map(Number);
-      const [eh, em] = endTime.split(":").map(Number);
-      if (sh * 60 + sm === eh * 60 + em) {
-        e.endTime = "Start and end time must be different";
-      } else if (sh * 60 + sm > eh * 60 + em) {
-        e.endTime =
-          "End time must be after start time. Tasks that end the next day are not supported yet.";
+      const rangeCheck = validateTimeRange(startTime, endTime);
+      if (!rangeCheck.valid) {
+        e[rangeCheck.field] = rangeCheck.message;
       }
     }
 

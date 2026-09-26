@@ -1,32 +1,56 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getTasksByDateRange, calendarRange, groupTasksByDate } from "@/services/taskService";
+import { getTasksByDateRange, groupTasksByDate } from "@/services/taskService";
 import { queryKeys } from "@/services/queryKeys";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useAuth } from "@/hooks/useAuthContext";
-import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, startOfMonth, formatTime, localDateStr, calendarDateKey } from "@/utils/dateTime";
+import {
+  getCalendarMonthAnchor,
+  getCalendarGridRange,
+  dateFromDateStr,
+  toDateStr,
+} from "@/utils/dashboardAnalytics";
+import { format, isSameMonth, formatTime, localDateStr } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, RotateCw } from "lucide-react";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getDayCellLabel } from "@/utils/notificationPanel";
-import type { Task } from "@/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function CalendarPage() {
-  const [monthDate, setMonthDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
   const userTimezone = useUserTimezone();
   const { user } = useAuth();
 
-  const calendarDays = useMemo(() => getCalendarDays(monthDate), [monthDate]);
+  /*
+   * The anchor is derived from the user's configured timezone, not the browser's.
+   * Previously `new Date()` seeded the state, so a user whose device timezone
+   * differed from their profile timezone could open the calendar on the wrong
+   * month. `localDateStr` is the same helper the rest of the app uses, so the
+   * calendar and the "Today" highlight always agree.
+   */
+  const todayStr = localDateStr(new Date(), userTimezone);
+  const [monthAnchor, setMonthAnchor] = useState(() => getCalendarMonthAnchor(todayStr));
+  const [selectedDate, setSelectedDate] = useState(() => dateFromDateStr(todayStr));
+
+  const { days: calendarDays, startStr: gridStart, endStr: gridEnd } = useMemo(
+    () => getCalendarGridRange(monthAnchor),
+    [monthAnchor]
+  );
+
+  const shiftMonth = (delta: number) => {
+    setMonthAnchor((current) => {
+      const shifted = new Date(current);
+      shifted.setUTCMonth(shifted.getUTCMonth() + delta);
+      return shifted;
+    });
+  };
 
   /*
-   * One range query for the whole grid, replacing the previous per-day loop
-   * (35–42 sequential requests per month).
+   * One bounded range query for the whole grid, replacing the previous per-day
+   * loop (35–42 sequential requests per month). The bounds come from the grid
+   * itself, so trailing/leading days outside the month are always covered.
    */
-  const range = useMemo(() => calendarRange(calendarDays), [calendarDays]);
-
   const {
     data: tasks = [],
     isLoading,
@@ -34,26 +58,17 @@ export function CalendarPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.taskList(
-      user?.id,
-      `calendar-${format(startOfMonth(monthDate), "yyyy-MM")}-${userTimezone}`
-    ),
-    queryFn: async () => {
-      if (!range) return [] as Task[];
-      return getTasksByDateRange(range.start, range.end);
-    },
+    queryKey: queryKeys.taskList(user?.id, `calendar-${gridStart}-${gridEnd}-${userTimezone}`),
+    queryFn: () => getTasksByDateRange(gridStart, gridEnd),
     staleTime: 30_000,
-    enabled: !!user && !!range,
+    enabled: !!user,
   });
 
   const tasksByDate = useMemo(() => groupTasksByDate(tasks), [tasks]);
 
-  const selectedDateStr = calendarDateKey(selectedDate);
-  const selectedTasks = tasksByDate[selectedDateStr] ?? [];
+  const selectedTasks = tasksByDate[toDateStr(selectedDate)] ?? [];
 
-  const loadErrorMessage = isError
-    ? getServiceErrorMessage(error)
-    : "";
+  const loadErrorMessage = isError ? getServiceErrorMessage(error) : "";
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
@@ -71,12 +86,12 @@ export function CalendarPage() {
           {/* Month navigation */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-              {format(monthDate, "MMMM yyyy")}
+              {format(monthAnchor, "MMMM yyyy")}
             </h2>
             <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => setMonthDate(subMonths(monthDate, 1))}
+                onClick={() => shiftMonth(-1)}
                 className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 aria-label="Previous month"
               >
@@ -84,14 +99,14 @@ export function CalendarPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setMonthDate(new Date())}
+                onClick={() => setMonthAnchor(getCalendarMonthAnchor(todayStr))}
                 className="px-3 py-1.5 text-sm rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
               >
                 Today
               </button>
               <button
                 type="button"
-                onClick={() => setMonthDate(addMonths(monthDate, 1))}
+                onClick={() => shiftMonth(1)}
                 className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 aria-label="Next month"
               >
@@ -144,11 +159,13 @@ export function CalendarPage() {
           {/* Days grid */}
           <div className="grid grid-cols-7 gap-1">
             {calendarDays.map((day) => {
-              const dateStr = calendarDateKey(day);
+              // Day keys are derived in UTC so the grid never shifts with the
+              // browser's offset; `todayStr` supplies the user's own today.
+              const dateStr = toDateStr(day);
               const dayTasks = tasksByDate[dateStr] ?? [];
-              const isToday = dateStr === localDateStr(new Date(), userTimezone);
-              const isSelected = isSameDay(day, selectedDate);
-              const inMonth = isSameMonth(day, monthDate);
+              const isToday = dateStr === todayStr;
+              const isSelected = dateStr === toDateStr(selectedDate);
+              const inMonth = isSameMonth(day, monthAnchor);
 
               return (
                 <button

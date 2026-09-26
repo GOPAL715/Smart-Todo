@@ -13,6 +13,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useDismissable } from "@/hooks/useDismissable";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getNotificationButtonLabel, getNotificationPanelState } from "@/utils/notificationPanel";
+import { getUnreadPollInterval } from "@/utils/dashboardAnalytics";
 
 export function AppLayout() {
   const { profile, user, signOut } = useAuth();
@@ -30,7 +31,9 @@ export function AppLayout() {
   const { data: unreadCount = 0 } = useQuery({
     queryKey: queryKeys.notificationUnreadCount(user?.id),
     queryFn: getUnreadCount,
-    refetchInterval: 30_000,
+    // 30s cadence is unchanged, but suspended while offline: a request that
+    // cannot succeed costs a failed round trip every 30s with nothing to show.
+    refetchInterval: getUnreadPollInterval(isOnline),
     enabled: !!user,
   });
 

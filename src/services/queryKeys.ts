@@ -26,6 +26,16 @@ export const queryKeys = {
   taskList: (userId: string | undefined, listKey: string) =>
     ["tasks", scope(userId), listKey] as const,
 
+  /**
+   * Exact lifetime task counts.
+   *
+   * Deliberately a separate key from `taskList`: these counts are computed by
+   * Postgres and are exact, whereas `taskList` holds the capped UI list. Sharing
+   * a key would let a truncated page satisfy an exact-count query.
+   */
+  lifetimeTaskStats: (userId: string | undefined) =>
+    ["tasks", scope(userId), "lifetime-stats"] as const,
+
   /** Stable identity for a set of task ids, so the tag map key does not churn. */
   taskIdSet: (taskIds: string[]) => {
     const sorted = [...taskIds].sort();

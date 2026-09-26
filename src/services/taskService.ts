@@ -5,6 +5,7 @@ import { REMINDER_OFFSETS } from "@/utils/dateTime";
 import { DEFAULT_TIMEZONE, toUtcIso, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { attachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks } from "@/services/subtaskService";
+import type { TaskStats } from "@/utils/dashboardAnalytics";
 export interface CreateTaskInput {
   title: string;
   description?: string;
@@ -454,6 +455,99 @@ export async function getTaskReminders(taskId: string): Promise<TaskReminder[]> 
   return (data ?? []) as TaskReminder[];
 }
 
+/**
+ * Lightweight task rows for the dashboard productivity panel.
+ *
+ * This is a deliberate, minimal column set: the panel only needs the schedule
+ * date, status and the created/updated timestamps. Selecting `*` here would ship
+ * every full task row for the range on each range switch.
+ */
+export interface AnalyticsTaskRow {
+  id: string;
+  user_id: string;
+  task_date: string;
+  status: TaskStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Tasks scheduled inside an inclusive `yyyy-MM-dd` range, with only the columns
+ * the productivity panel needs.
+ *
+ * This replaced a client-side filter over the user's entire task history: the
+ * dashboard previously fetched every task the account has ever had, then
+ * re-scanned the whole array each time the range was toggled. Bounding the query
+ * to the range means the transferred payload scales with the range (at most one
+ * month) rather than with the account's lifetime task count.
+ */
+export async function getAnalyticsTasks(
+  startDate: string,
+  endDate: string
+): Promise<AnalyticsTaskRow[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("id, user_id, task_date, status, created_at, updated_at")
+    .gte("task_date", startDate)
+    .lte("task_date", endDate)
+    .order("task_date", { ascending: true });
+  if (error) throw new Error(getServiceErrorMessage(error));
+  return (data ?? []) as AnalyticsTaskRow[];
+}
+
+/**
+ * Upper bound for the UI task list.
+ *
+ * SCOPE: this bounds what the task *list* renders. It must never be used to
+ * derive lifetime aggregates — see `getLifetimeTaskStats`, which counts in
+ * Postgres and is unaffected by this cap.
+ */
+export const TASK_LIST_LIMIT = 500;
+
+/** Upper bound for the overdue list rendered on the dashboard. */
+export const OVERDUE_LIST_LIMIT = 100;
+
+/**
+ * Exact lifetime task counts for the signed-in user.
+ *
+ * These MUST NOT be derived from `listTasks()`, which is capped by
+ * `TASK_LIST_LIMIT` for UI performance. Counting a capped page would silently
+ * under-report lifetime totals for any account with more tasks than the cap,
+ * so the counts are pushed to Postgres instead.
+ *
+ * Uses PostgREST's `count: "exact", head: true` — the same capability already
+ * used by `getUnreadCount` in notificationService. It transfers no rows at all
+ * (only a count in the response header), so it is both exact and cheap, and it
+ * needs no new RPC and no migration.
+ *
+ * RLS still applies: the `select_own_tasks` policy plus the explicit
+ * `user_id` filter means a user can only ever count their own tasks, and tasks
+ * shared *with* them are correctly excluded from personal lifetime metrics.
+ */
+export async function getLifetimeTaskStats(userId: string): Promise<TaskStats> {
+  const count = async (build: (query: ReturnType<typeof baseQuery>) => ReturnType<typeof baseQuery>) => {
+    const { count: value, error } = await build(baseQuery()).eq("user_id", userId);
+    if (error) throw new Error(getServiceErrorMessage(error));
+    return value ?? 0;
+  };
+
+  const [total, completed, pending, inProgress, overdue, urgent, high] = await Promise.all([
+    count((query) => query),
+    count((query) => query.eq("status", "COMPLETED")),
+    count((query) => query.eq("status", "PENDING")),
+    count((query) => query.eq("status", "IN_PROGRESS")),
+    count((query) => query.eq("status", "OVERDUE")),
+    count((query) => query.eq("priority", "URGENT")),
+    count((query) => query.eq("priority", "HIGH")),
+  ]);
+
+  return { total, completed, pending, inProgress, overdue, urgent, high };
+}
+
+function baseQuery() {
+  return supabase.from("tasks").select("id", { count: "exact", head: true });
+}
+
 export async function listTasks(filters?: {
   status?: TaskStatus;
   priority?: TaskPriority;
@@ -464,7 +558,9 @@ export async function listTasks(filters?: {
   if (filters?.priority) query = query.eq("priority", filters.priority);
   if (filters?.category) query = query.eq("category", filters.category);
 
-  const { data, error } = await query;
+  // Bounded: the previous query was fully unbounded, so a large account
+  // transferred its entire history on every dashboard and list load.
+  const { data, error } = await query.limit(TASK_LIST_LIMIT);
   if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
@@ -498,7 +594,8 @@ export async function getOverdueTasks(): Promise<Task[]> {
     .from("tasks")
     .select("*")
     .eq("status", "OVERDUE")
-    .order("end_datetime", { ascending: true });
+    .order("end_datetime", { ascending: true })
+    .limit(OVERDUE_LIST_LIMIT);
   if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
