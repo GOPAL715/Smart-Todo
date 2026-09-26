@@ -25,11 +25,6 @@ export async function createTag(name: string): Promise<Tag> {
   return data as Tag;
 }
 
-export async function deleteTag(tagId: string): Promise<void> {
-  const { error } = await supabase.from("tags").delete().eq("id", tagId);
-  if (error) throw new Error(getServiceErrorMessage(error));
-}
-
 /**
  * Returns the tags attached to a task. Supabase may embed the to-one `tags`
  * relation as either an object or a one-element array depending on inferred

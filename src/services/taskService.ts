@@ -604,16 +604,6 @@ function localToday(timezone: string): string {
   return localDateStr(new Date(), timezone);
 }
 
-export async function getTasksByDate(date: string): Promise<Task[]> {
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("*")
-    .eq("task_date", date)
-    .order("start_datetime", { ascending: true });
-  if (error) throw new Error(getServiceErrorMessage(error));
-  return (data ?? []).map(mapRow);
-}
-
 /**
  * All tasks whose `task_date` falls inside the inclusive `YYYY-MM-DD` range.
  *
@@ -661,16 +651,6 @@ export function groupTasksByDate(tasks: Task[]): Record<string, Task[]> {
     }
   }
   return map;
-}
-
-export async function searchTasks(query: string): Promise<Task[]> {
-  const { data, error } = await supabase
-    .from("tasks")
-    .select("*")
-    .ilike("title", `%${query}%`)
-    .order("start_datetime", { ascending: true });
-  if (error) throw new Error(getServiceErrorMessage(error));
-  return (data ?? []).map(mapRow);
 }
 
 export async function startTask(taskId: string): Promise<Task> {

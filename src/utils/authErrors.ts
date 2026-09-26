@@ -113,13 +113,3 @@ export function getAuthErrorMessage(err: unknown): string {
 
   return "Something went wrong. Please try again.";
 }
-
-export function getNetworkErrorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    if (msg.includes("network") || msg.includes("fetch") || msg.includes("failed") || msg.includes("abort")) {
-      return "Unable to connect. Please check your internet connection and try again.";
-    }
-  }
-  return "Something went wrong. Please try again.";
-}

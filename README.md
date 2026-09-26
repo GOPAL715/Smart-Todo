@@ -46,11 +46,21 @@ src/
 ├── components/ui/       # Reusable UI components (TaskCard, ShareTaskPanel)
 ├── pages/               # Page components (Dashboard, TaskList, TaskForm, TaskDetail, Calendar, Settings, Login, Signup)
 ├── layouts/             # Layout components (AppLayout with sidebar + notifications + offline banner)
-├── hooks/               # Custom hooks (useAuth, useTheme, useReminderProcessor, useOnlineStatus, useUserTimezone)
-├── services/            # Service layer (supabase client, taskService, tagService, subtaskService, notificationService, shareService)
+├── hooks/               # Custom hooks (useAuth, useTheme, useReminderProcessor, useOnlineStatus, useUserTimezone, useDismissable)
+├── services/            # Service layer (supabase client, taskService, tagService, subtaskService, notificationService, shareService, queryKeys)
 ├── types/               # TypeScript type definitions
-├── utils/               # Utilities (dateTime helpers, timezone conversion, PWA cache management)
+├── utils/               # Utilities (dateTime, timezone conversion, dashboard analytics, PWA cache, validation, batching)
 └── routes/              # Route guards (ProtectedRoute)
+```
+
+Database and operations assets live outside `src/`:
+
+```
+supabase/
+├── migrations/          # Ordered, immutable SQL migrations (001-026)
+├── functions/           # Edge functions (process-reminders)
+├── tests/               # pgTAP suites; run only against a disposable local database
+└── ops/                 # Health check and operations runbook
 ```
 
 ### Database Schema
@@ -171,13 +181,38 @@ the primary mechanism.
 
 ## Security
 
-- **Row Level Security** on all tables — users can only access their own data
-- **Owner-scoped policies** — `auth.uid() = user_id` checks on every operation
-- **Task ownership** — users cannot access other users' tasks by changing IDs
-- **task_reminders** scoped through parent task's user_id
-- **tags** owner-only; **task_tags**/**subtasks** follow the parent task (owner or EDIT share) — enforced by RLS in migration 020
-- **SECURITY DEFINER functions** have EXECUTE revoked from anon role
-- **Password hashing** — managed by Supabase Auth (BCrypt)
+Access control is enforced in the database, not in the interface:
+
+- **Row Level Security** is enabled on every table (`profiles`, `tasks`, `task_reminders`,
+  `notifications`, `tags`, `task_tags`, `subtasks`) with separate owner-scoped
+  SELECT/INSERT/UPDATE/DELETE policies for the `authenticated` role. `task_reminders` is
+  scoped through its parent task; `task_tags` and `subtasks` follow the parent task's
+  owner-or-EDIT-share rules.
+- **Task ownership** — users cannot reach another user's tasks by changing an id
+- Task status changes are validated by a `BEFORE UPDATE` trigger
+  (`enforce_task_status_transition`), so the workflow cannot be bypassed by calling the
+  data API directly.
+- **Password hashing** is managed by Supabase Auth (BCrypt)
+- `process_all_due_reminders()` (cross-tenant, RLS-bypassing) has no EXECUTE grant to
+  `anon` or `authenticated`. It is reachable only through the `process-reminders` edge
+  function, which keeps JWT verification on and accepts only two callers: a holder of the
+  service-role key, or the in-database scheduler presenting its Vault token. Both are
+  compared in constant time. `process_due_reminders()` is user-scoped via `auth.uid()` and
+  is the only reminder entry point the app itself calls.
+- The scheduler's own functions (`invoke_reminder_processor`, `get_reminder_scheduler_token`,
+  `cleanup_reminder_scheduler_runs`) are `SECURITY DEFINER` with EXECUTE revoked from
+  PUBLIC, `anon` and `authenticated`, so no client role can trigger a cross-tenant run,
+  read the scheduler token, or run retention. That token is generated and stored
+  server-side in Vault and is never sent to the browser; only a publishable project key
+  accompanies it, and that key is public by design.
+- `reminder_scheduler_runs` has RLS enabled with no policies, so it is readable by no
+  client role.
+- Sharing is closed to email enumeration: `share_task` (migration 025) returns an
+  identical success response for unregistered, self, newly shared, and already-shared
+  outcomes, so the response body cannot be used to discover which emails have accounts.
+- User-facing failures show fixed messages; provider and database error detail goes to
+  the browser console only, so sign-in, sign-up, and sharing cannot be used to discover
+  which email addresses have accounts.
 
 ## API (via Supabase)
 
@@ -273,7 +308,9 @@ prevent cross-user data leakage.
 
 ## Local Setup
 
-1. The Supabase backend is provisioned automatically — credentials are in `.env`
+1. The Supabase backend is provisioned separately. Copy `.env.example` to `.env` and fill in
+   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from **Supabase → Project Settings → API**.
+   `.env` is gitignored; the browser only ever receives the publishable (anon) key.
 2. Install dependencies:
    ```bash
    npm install
@@ -294,41 +331,23 @@ prevent cross-user data leakage.
    ```bash
    npm test
    ```
+7. Lint:
+   ```bash
+   npm run lint
+   ```
+
+The pgTAP suites in `supabase/tests/` are separate and run only against a
+**disposable local database**, never production. See
+[`supabase/ops/RUNBOOK.md`](supabase/ops/RUNBOOK.md#7-pgtap-database-tests).
 
 ## Environment Variables
 
-All Supabase environment variables are pre-populated:
+Only two variables are required, and both are browser-safe:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-## Security
-
-Access control is enforced in the database, not in the interface:
-
-- Row Level Security is enabled on every table (`profiles`, `tasks`, `task_reminders`,
-  `notifications`, `tags`, `task_tags`, `subtasks`) with separate owner-scoped
-  SELECT/INSERT/UPDATE/DELETE policies for the `authenticated` role. `task_reminders` is
-  scoped through its parent task; `task_tags` and `subtasks` follow the parent task's
-  owner-or-EDIT-share rules.
-- Task status changes are validated by a `BEFORE UPDATE` trigger
-  (`enforce_task_status_transition`), so the workflow cannot be bypassed by calling the
-  data API directly.
-- `process_all_due_reminders()` (cross-tenant, RLS-bypassing) has no EXECUTE grant to
-  `anon` or `authenticated`. It is reachable only through the `process-reminders` edge
-  function, which keeps JWT verification on and accepts only two callers: a holder of the
-  service-role key, or the in-database scheduler presenting its Vault token. Both are
-  compared in constant time. `process_due_reminders()` is user-scoped via `auth.uid()` and
-  is the only reminder entry point the app itself calls.
-- The scheduler's own functions (`invoke_reminder_processor`, `get_reminder_scheduler_token`)
-  are `SECURITY DEFINER` with EXECUTE revoked from PUBLIC, `anon` and `authenticated`, so no
-  client role can trigger a cross-tenant run or read the scheduler token. That token is
-  generated and stored server-side in Vault and is never sent to the browser; only a
-  publishable project key accompanies it, and that key is public by design.
-- `reminder_scheduler_runs` has RLS enabled with no policies, so it is readable by no
-  client role.
-- User-facing failures show fixed messages; provider and database error detail goes to
-  the browser console only, so sign-in and sign-up cannot be used to discover which
-  email addresses have accounts.
+The service-role key and the scheduler token are **never** browser variables. See
+[Operations runbook](supabase/ops/RUNBOOK.md#6-configuration-and-secrets).
 
 ### Required manual configuration
 
@@ -350,6 +369,19 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 - Per-user timezone selection affecting all task input and display
 - Dark mode with light/dark/system options and localStorage persistence
 - PWA with offline shell, public asset caching, and online/offline indicator
+- Phase 11A — Security/reliability hardening: auth cache isolation, per-user query-key
+  scoping, and hardened reminder creation
+- Phase 11B — Calendar performance and error handling: one bounded range query per month
+  instead of 35–42 per-day calls, plus visible error states
+- Phase 11C — Sharing security and accessibility: `share_task` no longer reveals whether
+  an email is registered (migration 025), and icon controls, dialogs, and the mobile
+  drawer gained accessible names, focus return, and Escape handling
+- Phase 11D — Performance and timezone correctness: exact lifetime dashboard statistics
+  counted in Postgres, range-bounded analytics, timezone-anchored calendar, and bounded
+  task/tag queries
+- Phase 11E — Operations: 30-day retention for scheduler run history (migration 026, no
+  extra cron job), a read-only [health check](supabase/ops/health_check.sql), and an
+  [operations runbook](supabase/ops/RUNBOOK.md)
 
 ## Blocked
 

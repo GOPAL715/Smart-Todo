@@ -1,6 +1,7 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "smart-todo",
   "private": true,
+  "description": "SmartTodo — task management with reminders, sharing, and recurring schedules, backed by Supabase.",
   "version": "0.0.0",
   "type": "module",
   "scripts": {

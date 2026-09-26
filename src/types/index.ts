@@ -15,10 +15,6 @@ export interface Subtask {
   created_at: string;
   updated_at: string;
 }
-export interface TaskWithTags extends Task {
-  tags: Tag[];
-  subtasks: Subtask[];
-}
 export type ReminderType =
   | "ONE_DAY"
   | "TWO_HOURS"
@@ -130,15 +126,4 @@ export interface Notification {
   is_read: boolean;
   created_at: string;
   read_at: string | null;
-}
-
-export interface TaskWithReminders extends Task {
-  reminders: TaskReminder[];
-}
-
-export interface ApiError {
-  timestamp: string;
-  status: number;
-  error: string;
-  message: string;
 }

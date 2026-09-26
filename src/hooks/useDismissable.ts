@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * Small helper for the app's overlay surfaces (notification panel, mobile
@@ -50,11 +50,4 @@ export function useDismissable(
       triggerRef?.current?.focus();
     }
   }, [isOpen, triggerRef]);
-}
-
-/** Toggles a boolean, for disclosure triggers. */
-export function useToggle(initial = false) {
-  const [value, setValue] = useState(initial);
-  const toggle = useCallback(() => setValue((v) => !v), []);
-  return [value, toggle, setValue] as const;
 }
