@@ -6,6 +6,7 @@ import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useDismissable } from "@/hooks/useDismissable";
 import { ReviewPanel } from "@/components/ui/ReviewPanel";
+import { analyzeTask, toAnalyzableDraft } from "@/utils/taskIntelligence";
 import { createTask, type CreateTaskInput } from "@/services/taskService";
 import { getTags } from "@/services/tagService";
 import {
@@ -169,6 +170,21 @@ export function SmartTaskPage() {
 
   const todayStr = useMemo(() => localDateStr(new Date(), userTimezone), [userTimezone]);
 
+  /*
+   * Phase 13B integration: the intelligence layer reviews the draft the Phase 13A
+   * parser produced and can add a reminder suggestion. This is advisory only —
+   * it never changes the draft's priority, which stays under the user's control,
+   * and it is never applied without the user pressing Save Task.
+   */
+  const draftInsight = useMemo(() => {
+    if (!draft) return null;
+    return analyzeTask(toAnalyzableDraft(draft), {
+      timezone: userTimezone,
+      todayStr,
+      now: new Date(),
+    });
+  }, [draft, userTimezone, todayStr]);
+
   return (
     <div className="max-w-2xl mx-auto">
       <button type="button" onClick={() => navigate("/app/tasks")} className="btn-ghost mb-4 text-sm">
@@ -265,6 +281,7 @@ export function SmartTaskPage() {
           saveError={saveError}
           saving={saving}
           todayStr={todayStr}
+          reminderSuggestion={draftInsight?.reminderSuggestion ?? null}
           onSave={handleSave}
           onDiscard={discardDraft}
           onToggleReminder={toggleReminder}

@@ -5,6 +5,7 @@ import {
   REMINDER_OPTIONS,
 } from "@/utils/draftOptions";
 import type { Tag, TaskPriority, Recurrence, TaskDraft } from "@/types";
+import type { IntelligenceContext } from "@/utils/taskIntelligence";
 
 const UNRESOLVED_LABELS: Record<string, string> = {
   taskDate: "a date",
@@ -25,6 +26,9 @@ export interface ReviewPanelProps {
   onSave: () => void;
   onDiscard: () => void;
   onToggleReminder: (offset: number) => void;
+  /** Advisory reminder suggestion from the intelligence layer. Never applied automatically. */
+  reminderSuggestion?: { offsetMinutes: number; label: string; reasons: string[] } | null;
+  context?: IntelligenceContext;
 }
 
 /**
@@ -47,6 +51,7 @@ export function ReviewPanel({
   onSave,
   onDiscard,
   onToggleReminder,
+  reminderSuggestion,
 }: ReviewPanelProps) {
   const update = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => {
     setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -72,6 +77,17 @@ export function ReviewPanel({
       return { ...prev, suggestedTagNames: next };
     });
   };
+
+  /*
+   * The reminder hint is a *suggestion the user applies by clicking it*. It is
+   * computed from the draft as it currently stands, and it is hidden as soon as
+   * the draft already has that reminder, so it can never re-apply itself.
+   */
+  const reminderHint = (() => {
+    if (!reminderSuggestion) return null;
+    if (draft.reminderOffsets.includes(reminderSuggestion.offsetMinutes)) return null;
+    return reminderSuggestion;
+  })();
 
   return (
     <section aria-labelledby="review-heading" className="card p-4 sm:p-5 space-y-4">
@@ -239,6 +255,27 @@ export function ReviewPanel({
           </select>
         </div>
       </div>
+
+      {reminderHint && (
+        <div
+          role="status"
+          className="rounded-lg bg-primary-50 dark:bg-primary-950/40 border border-primary-200 dark:border-primary-800 px-3 py-2 text-xs"
+        >
+          <p className="text-neutral-700 dark:text-neutral-300">
+            <span className="font-medium">Consider a {reminderHint.label} reminder.</span>{" "}
+            <span className="text-neutral-500 dark:text-neutral-400">
+              {reminderHint.reasons.join(" · ")}
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => onToggleReminder(reminderHint.offsetMinutes)}
+            className="btn-secondary mt-2 text-xs"
+          >
+            Add this reminder
+          </button>
+        </div>
+      )}
 
       <fieldset>
         <legend className="label">Reminders</legend>

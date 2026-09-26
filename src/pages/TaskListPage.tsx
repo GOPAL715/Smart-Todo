@@ -8,6 +8,8 @@ import { localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useAuth } from "@/hooks/useAuthContext";
 import { TaskCard } from "@/components/ui/TaskCard";
+import { WorkloadInsight } from "@/components/ui/WorkloadInsight";
+import { rankTasks } from "@/utils/taskIntelligence";
 import { Plus, Search, Trash2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TaskStatus, TaskPriority, SharedWithMe } from "@/types";
@@ -33,7 +35,22 @@ export function TaskListPage() {
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | "">("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
-  const [sort, setSort] = useState<"due" | "priority" | "title" | "created">("due");
+  const [sort, setSort] = useState<"due" | "priority" | "title" | "created" | "smart">("due");
+  const [insightDismissed, setInsightDismissed] = useState(false);
+
+  /*
+   * One context for the whole intelligence layer, built from the user's own
+   * timezone. `todayStr` comes from the same `localDateStr` helper the rest of
+   * the app uses, so "today" can never drift to the browser's date.
+   */
+  const intelligenceContext = useMemo(
+    () => ({
+      timezone: userTimezone,
+      todayStr: localDateStr(new Date(), userTimezone),
+      now: new Date(),
+    }),
+    [userTimezone]
+  );
 
   const { data: allTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "all"), queryFn: () => listTasks(), enabled: !!user });
 
@@ -137,25 +154,32 @@ export function TaskListPage() {
     if (tagFilter) tasks = tasks.filter((t) => (tagMap[t.id] ?? []).some((tag) => tag.id === tagFilter));
 
     const priorityRank: Record<TaskPriority, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-    tasks = [...tasks].sort((a, b) => {
-      switch (sort) {
-        case "priority":
-          return priorityRank[a.priority] - priorityRank[b.priority];
-        case "title":
-          return a.title.localeCompare(b.title);
-        case "created":
-          return b.created_at.localeCompare(a.created_at);
-        default:
-          return (a.start_datetime ?? "").localeCompare(b.start_datetime ?? "");
-      }
-    });
+
+    if (sort === "smart") {
+      // Advisory ordering only: `rankTasks` returns a new array and never
+      // touches the task objects, so nothing here mutates cached data.
+      tasks = rankTasks(tasks, intelligenceContext);
+    } else {
+      tasks = [...tasks].sort((a, b) => {
+        switch (sort) {
+          case "priority":
+            return priorityRank[a.priority] - priorityRank[b.priority];
+          case "title":
+            return a.title.localeCompare(b.title);
+          case "created":
+            return b.created_at.localeCompare(a.created_at);
+          default:
+            return (a.start_datetime ?? "").localeCompare(b.start_datetime ?? "");
+        }
+      });
+    }
 
     return tasks.map((t) =>
       shareMap[t.id]
         ? { ...t, share_permission: shareMap[t.id].permission, owner_name: shareMap[t.id].owner_name }
         : t
     );
-  }, [allTasks, tab, statusFilter, priorityFilter, categoryFilter, search, tagFilter, sort, tagMap, shareMap, userTimezone]);
+  }, [allTasks, tab, statusFilter, priorityFilter, categoryFilter, search, tagFilter, sort, tagMap, shareMap, userTimezone, intelligenceContext]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
@@ -183,6 +207,16 @@ export function TaskListPage() {
           </Link>
         </div>
       </div>
+
+      {/* Advisory only: a workload snapshot the user can dismiss. It never
+          changes any task. */}
+      {!insightDismissed && allTasks.length > 0 && (
+        <WorkloadInsight
+          tasks={allTasks}
+          context={intelligenceContext}
+          onDismiss={() => setInsightDismissed(true)}
+        />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto">
@@ -268,9 +302,10 @@ export function TaskListPage() {
         <select
           className="input w-auto ml-auto"
           value={sort}
-          onChange={(e) => setSort(e.target.value as "due" | "priority" | "title" | "created")}
+          onChange={(e) => setSort(e.target.value as "due" | "priority" | "title" | "created" | "smart")}
           aria-label="Sort tasks"
         >
+          <option value="smart">Sort: Smart (suggested)</option>
           <option value="due">Sort: Due date</option>
           <option value="priority">Sort: Priority</option>
           <option value="title">Sort: Title</option>
