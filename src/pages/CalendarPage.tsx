@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getTasksByDate } from "@/services/taskService";
+import { queryKeys } from "@/services/queryKeys";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
+import { useAuth } from "@/hooks/useAuthContext";
 import { getCalendarDays, format, isSameDay, isSameMonth, addMonths, subMonths, startOfMonth, formatTime, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
@@ -13,11 +15,12 @@ export function CalendarPage() {
   const [monthDate, setMonthDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const userTimezone = useUserTimezone();
+  const { user } = useAuth();
 
   const calendarDays = useMemo(() => getCalendarDays(monthDate), [monthDate]);
 
   const { data: tasks = [] } = useQuery({
-    queryKey: ["tasks", "calendar", format(startOfMonth(monthDate), "yyyy-MM"), userTimezone],
+    queryKey: queryKeys.taskList(user?.id, `calendar-${format(startOfMonth(monthDate), "yyyy-MM")}-${userTimezone}`),
     queryFn: async () => {
       const allTasks: Task[] = [];
       const seen = new Set<string>();
@@ -34,6 +37,7 @@ export function CalendarPage() {
       return allTasks;
     },
     staleTime: 30_000,
+    enabled: !!user,
   });
 
   const tasksByDate = useMemo(() => {

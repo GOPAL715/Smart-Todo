@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuthContext";
+import { useTheme } from "@/hooks/useThemeContext";
 import { supabase } from "@/services/supabase";
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/utils/dateTime";
 import { ArrowLeft, Globe, Check, Search, Sun, Moon, Monitor } from "lucide-react";

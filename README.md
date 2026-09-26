@@ -23,7 +23,7 @@ A production-quality todo application with intelligent time-based task reminders
 - **Timezone Handling** — All times stored as UTC (timestamptz); displayed in user timezone (default: Asia/Kolkata)
 - **Responsive Design** — Works on desktop, tablet, and mobile
 - **Dark Mode** — Light, dark, and system-following themes; persists across sessions
-- **PWA** — Installable as a standalone app with offline shell and cached data reads
+- **PWA** — Installable as a standalone app with offline shell; authenticated API data is not runtime-cached
 
 ## Architecture
 
@@ -343,7 +343,7 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 - Task sharing with view-only and can-edit permissions
 - Per-user timezone selection affecting all task input and display
 - Dark mode with light/dark/system options and localStorage persistence
-- PWA with offline shell, cached API reads, and online/offline indicator
+- PWA with offline shell, public asset caching, and online/offline indicator
 
 ## Blocked
 

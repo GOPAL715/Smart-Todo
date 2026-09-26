@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, LayoutDashboard, ListTodo, Calendar, LogOut, Plus, CheckCheck, X, Clock, Settings, WifiOff } from "lucide-react";
 import { listNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from "@/services/notificationService";
+import { queryKeys } from "@/services/queryKeys";
 import { useState, useEffect, useRef } from "react";
 import type { Notification } from "@/types";
 import { formatDateTime } from "@/utils/dateTime";
@@ -10,7 +11,7 @@ import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 export function AppLayout() {
-  const { profile, signOut } = useAuth();
+  const { profile, user, signOut } = useAuth();
   const userTimezone = useUserTimezone();
   const isOnline = useOnlineStatus();
   const navigate = useNavigate();
@@ -20,35 +21,36 @@ export function AppLayout() {
   const notifRef = useRef<HTMLDivElement>(null);
 
   const { data: unreadCount = 0 } = useQuery({
-    queryKey: ["notifications", "unread-count"],
+    queryKey: queryKeys.notificationUnreadCount(user?.id),
     queryFn: getUnreadCount,
     refetchInterval: 30_000,
+    enabled: !!user,
   });
 
   const { data: notifications = [] } = useQuery({
-    queryKey: ["notifications"],
+    queryKey: queryKeys.notificationList(user?.id),
     queryFn: listNotifications,
-    enabled: notifOpen,
+    enabled: notifOpen && !!user,
   });
 
   const markReadMutation = useMutation({
     mutationFn: markAsRead,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
     },
   });
 
   const markAllReadMutation = useMutation({
     mutationFn: markAllAsRead,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
     },
   });
 
   const deleteNotifMutation = useMutation({
     mutationFn: deleteNotification,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
     },
   });
 

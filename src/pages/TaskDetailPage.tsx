@@ -5,8 +5,9 @@ import { getTask, getTaskReminders, startTask, completeTask, cancelTask, deleteT
 import { getTags, createTag, attachTag, detachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks, createSubtask, updateSubtask, deleteSubtask } from "@/services/subtaskService";
 import { getShareOverview } from "@/services/shareService";
+import { queryKeys } from "@/services/queryKeys";
 import { ShareTaskPanel } from "@/components/ui/ShareTaskPanel";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuthContext";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { formatDate, formatTime, formatDateTime, getDurationLabel, REMINDER_LABELS, RECURRENCE_LABELS } from "@/utils/dateTime";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
@@ -38,29 +39,29 @@ export function TaskDetailPage() {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [newTagInput, setNewTagInput] = useState("");
 
-  const { data: overview } = useQuery({ queryKey: ["share-overview"], queryFn: getShareOverview, enabled: !!user });
-  const { data: task, isLoading, error } = useQuery({ queryKey: ["tasks", id], queryFn: () => (id ? getTask(id) : Promise.resolve(null)), enabled: !!id });
+  const { data: overview } = useQuery({ queryKey: queryKeys.shareOverview(user?.id), queryFn: getShareOverview, enabled: !!user });
+  const { data: task, isLoading, error } = useQuery({ queryKey: queryKeys.taskDetail(user?.id, id), queryFn: () => (id ? getTask(id) : Promise.resolve(null)), enabled: !!id });
   const shareInfo = overview?.shared_with_me.find((s: SharedWithMe) => s.task_id === id) ?? null;
   const isSharedWithMe = !!shareInfo;
   const isOwner = !!task && !!user && task.user_id === user.id;
   const canEdit = isOwner || shareInfo?.permission === "EDIT";
 
-  const { data: reminders = [] } = useQuery({ queryKey: ["tasks", id, "reminders"], queryFn: () => (id ? getTaskReminders(id) : Promise.resolve([])), enabled: !!id });
+  const { data: reminders = [] } = useQuery({ queryKey: queryKeys.taskReminders(user?.id, id), queryFn: () => (id ? getTaskReminders(id) : Promise.resolve([])), enabled: !!id });
 
-  const startMutation = useMutation({ mutationFn: () => startTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }), onError: () => setTaskError("Could not start task.") });
-  const completeMutation = useMutation({ mutationFn: () => completeTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }), onError: () => setTaskError("Could not complete task.") });
-  const cancelMutation = useMutation({ mutationFn: () => cancelTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }), onError: () => setTaskError("Could not cancel task.") });
-  const deleteMutation = useMutation({ mutationFn: () => deleteTask(id!), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks"] }); navigate("/app/tasks"); }, onError: () => setTaskError("Could not delete task.") });
+  const startMutation = useMutation({ mutationFn: () => startTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not start task.") });
+  const completeMutation = useMutation({ mutationFn: () => completeTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not complete task.") });
+  const cancelMutation = useMutation({ mutationFn: () => cancelTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not cancel task.") });
+  const deleteMutation = useMutation({ mutationFn: () => deleteTask(id!), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); navigate("/app/tasks"); }, onError: () => setTaskError("Could not delete task.") });
 
-  const subtasksQuery = useQuery({ queryKey: ["tasks", id, "subtasks"], queryFn: () => (id ? getSubtasks(id) : Promise.resolve([])), enabled: !!id });
-  const tagsQuery = useQuery({ queryKey: ["tasks", id, "tags"], queryFn: () => (id ? getTaskTags(id) : Promise.resolve([])), enabled: !!id });
-  const allTagsQuery = useQuery({ queryKey: ["tags"], queryFn: getTags, enabled: !!user });
+  const subtasksQuery = useQuery({ queryKey: queryKeys.taskSubtasks(user?.id, id), queryFn: () => (id ? getSubtasks(id) : Promise.resolve([])), enabled: !!id });
+  const tagsQuery = useQuery({ queryKey: queryKeys.taskTags(user?.id, id), queryFn: () => (id ? getTaskTags(id) : Promise.resolve([])), enabled: !!id });
+  const allTagsQuery = useQuery({ queryKey: queryKeys.tags(user?.id), queryFn: getTags, enabled: !!user });
 
-  const createSubtaskMutation = useMutation({ mutationFn: (title: string) => createSubtask(id!, title), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", id, "subtasks"] }); queryClient.invalidateQueries({ queryKey: ["tasks"] }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const updateSubtaskMutation = useMutation({ mutationFn: ({ subtaskId, updates }: { subtaskId: string; updates: { title?: string; is_completed?: boolean } }) => updateSubtask(subtaskId, updates), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", id, "subtasks"] }); queryClient.invalidateQueries({ queryKey: ["tasks"] }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const deleteSubtaskMutation = useMutation({ mutationFn: (subtaskId: string) => deleteSubtask(subtaskId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", id, "subtasks"] }); queryClient.invalidateQueries({ queryKey: ["tasks"] }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const attachTagMutation = useMutation({ mutationFn: (tagId: string) => attachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", id, "tags"] }); queryClient.invalidateQueries({ queryKey: ["tags"] }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const detachTagMutation = useMutation({ mutationFn: (tagId: string) => detachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", id, "tags"] }); queryClient.invalidateQueries({ queryKey: ["tags"] }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const createSubtaskMutation = useMutation({ mutationFn: (title: string) => createSubtask(id!, title), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const updateSubtaskMutation = useMutation({ mutationFn: ({ subtaskId, updates }: { subtaskId: string; updates: { title?: string; is_completed?: boolean } }) => updateSubtask(subtaskId, updates), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const deleteSubtaskMutation = useMutation({ mutationFn: (subtaskId: string) => deleteSubtask(subtaskId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const attachTagMutation = useMutation({ mutationFn: (tagId: string) => attachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const detachTagMutation = useMutation({ mutationFn: (tagId: string) => detachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
 
   if (isLoading) return <div className="max-w-2xl mx-auto p-8 text-center text-neutral-400">Loading task...</div>;
   if (error || !task) return <div className="max-w-2xl mx-auto p-8 text-center"><p className="text-neutral-500 dark:text-neutral-400 mb-4">Task not found.</p><button onClick={() => navigate("/app/tasks")} className="btn-secondary">Back to Tasks</button></div>;
@@ -101,8 +102,8 @@ export function TaskDetailPage() {
   const handleCreateTag = () => {
     if (!newTagInput.trim()) return;
     createTag(newTagInput.trim()).then(() => {
-      queryClient.invalidateQueries({ queryKey: ["tags"] });
-      queryClient.invalidateQueries({ queryKey: ["tasks", id, "tags"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) });
       setNewTagInput("");
     }).catch((err: unknown) => setTaskError(getServiceErrorMessage(err)));
   };

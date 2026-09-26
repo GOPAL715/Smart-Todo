@@ -1,15 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/useAuth";
-import { createTask, updateTask, getTask, type CreateTaskInput } from "@/services/taskService";
+import { useAuth } from "@/hooks/useAuthContext";
+import { createTask, updateTask, getTaskForEdit, type CreateTaskInput } from "@/services/taskService";
 import { REMINDER_OFFSETS, REMINDER_LABELS, localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { ArrowLeft, Save, WifiOff, Tag as TagIcon } from "lucide-react";
+import { ArrowLeft, Save, WifiOff, Tag as TagIcon, AlertTriangle, RotateCw } from "lucide-react";
 import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getTags, createTag } from "@/services/tagService";
+import { queryKeys } from "@/services/queryKeys";
 import type { Tag, TaskPriority, Recurrence } from "@/types";
 
 const RECURRENCE_OPTIONS: { value: Recurrence | ""; label: string }[] = [
@@ -56,15 +57,47 @@ export function TaskFormPage() {
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
+  /*
+   * Loading state of the task being edited.
+   *
+   * "loading"  - the task and its relations are still being fetched.
+   * "ready"    - everything loaded; tags genuinely reflect the saved state.
+   * "notfound" - no such task (or not visible to this user).
+   * "failed"   - the task loaded but its tags could not be read.
+   *
+   * "failed" must never be treated as "ready with zero tags": saving in that
+   * state would submit an empty tag list and delete the task's real tags.
+   */
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "notfound" | "failed">(
+    "idle"
+  );
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  /** Saving an edit is unsafe until the existing tags are known. */
+  const tagsAreSafeToSave = !isEdit || loadState === "ready";
+  const isLoadingTask = isEdit && (loadState === "loading" || loadState === "idle");
+
   useEffect(() => {
     if (!isEdit) setTaskDate(localDateStr(new Date(), userTimezone));
   }, [isEdit, userTimezone]);
 
   useEffect(() => {
     if (!isEdit || !id) return;
+
+    let cancelled = false;
+    setLoadState("loading");
+
     (async () => {
-      const task = await getTask(id);
-      if (task) {
+      try {
+        const result = await getTaskForEdit(id);
+        if (cancelled) return;
+
+        if (!result.task) {
+          setLoadState("notfound");
+          return;
+        }
+
+        const task = result.task;
         setTitle(task.title);
         setDescription(task.description ?? "");
         setTaskDate(task.task_date);
@@ -76,13 +109,27 @@ export function TaskFormPage() {
         setRecurrence(task.recurrence ?? "");
         setRecurrenceUntil(task.recurrence_until ?? "");
         setSelectedTagIds(task.tags?.map((t: Tag) => t.id) ?? []);
+
+        // A failed tag read is surfaced as its own state rather than an empty
+        // selection, so the form can block saving instead of wiping the tags.
+        setLoadState(result.tagsLoaded ? "ready" : "failed");
+      } catch (err) {
+        if (cancelled) return;
+        setSubmitError(getServiceErrorMessage(err));
+        setLoadState("failed");
       }
     })();
-  }, [id, isEdit]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isEdit, loadAttempt]);
 
   useEffect(() => {
     if (!user) return;
-    getTags().then(setAvailableTags).catch(() => {});
+    getTags()
+      .then(setAvailableTags)
+      .catch((err: unknown) => setSubmitError(getServiceErrorMessage(err)));
   }, [user]);
 
   const toggleReminder = (offset: number) => {
@@ -118,7 +165,7 @@ export function TaskFormPage() {
       setAvailableTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
       setSelectedTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
       setNewTag("");
-      queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) });
     } catch (err) {
       setSubmitError(getServiceErrorMessage(err));
     }
@@ -127,6 +174,21 @@ export function TaskFormPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError("");
+
+    /*
+     * Refuse to save while the task's existing tags are unknown. Without this,
+     * an edit made after a failed tag read would submit an empty tag list and
+     * `syncTaskTags` would delete every tag the task actually has.
+     */
+    if (!tagsAreSafeToSave) {
+      setSubmitError(
+        isLoadingTask
+          ? "Still loading this task. Please wait a moment before saving."
+          : "This task's tags could not be loaded, so saving is disabled to protect them. Retry the load, then save."
+      );
+      return;
+    }
+
     if (!validate() || !user) return;
 
     setLoading(true);
@@ -142,7 +204,9 @@ export function TaskFormPage() {
         reminderOffsets: selectedReminders,
         recurrence: recurrence || null,
         recurrenceUntil: recurrenceUntil || null,
-        tagIds: selectedTagIds,
+        // Only sent once the current tags are known, so a failed read can never
+        // be written back as "this task has no tags".
+        tagIds: tagsAreSafeToSave ? selectedTagIds : undefined,
       };
 
       if (isEdit && id) {
@@ -151,9 +215,9 @@ export function TaskFormPage() {
         await createTask(input, user.id, userTimezone);
       }
 
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) });
       navigate("/app/tasks");
     } catch (err) {
       setSubmitError(getServiceErrorMessage(err));
@@ -176,6 +240,44 @@ export function TaskFormPage() {
       {submitError && (
         <div role="alert" className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
           {submitError}
+        </div>
+      )}
+
+      {/*
+        A failed tag read is called out separately from a generic error, because
+        the consequence is different: saving is blocked so the existing tags
+        cannot be overwritten, and the fix is to retry the load.
+      */}
+      {isEdit && loadState === "failed" && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg bg-warning-50 dark:bg-warning-950 border border-warning-200 dark:border-warning-800 px-4 py-3 text-sm text-warning-800 dark:text-warning-300"
+        >
+          <p className="flex items-start gap-2 font-medium">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <span>
+              This task&apos;s tags could not be loaded, so saving is disabled to
+              prevent them from being removed. Your other changes have not been lost.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+            className="btn-secondary mt-3"
+          >
+            <RotateCw size={16} />
+            Retry loading
+          </button>
+        </div>
+      )}
+
+      {isEdit && loadState === "notfound" && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg bg-warning-50 dark:bg-warning-950 border border-warning-200 dark:border-warning-800 px-4 py-3 text-sm text-warning-800 dark:text-warning-300"
+        >
+          This task could not be found. It may have been deleted, or you may not
+          have access to it.
         </div>
       )}
 
@@ -372,9 +474,28 @@ export function TaskFormPage() {
         )}
 
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={loading || !isOnline} className="btn-primary">
+          {/*
+            Saving is blocked until the task's tags are known, so a failed tag
+            read can never be written back as an empty tag list.
+          */}
+          <button
+            type="submit"
+            disabled={loading || !isOnline || !tagsAreSafeToSave}
+            title={
+              tagsAreSafeToSave
+                ? undefined
+                : "Disabled until this task's tags finish loading"
+            }
+            className="btn-primary"
+          >
             <Save size={16} />
-            {loading ? "Saving..." : isEdit ? "Update Task" : "Create Task"}
+            {loading
+              ? "Saving..."
+              : isLoadingTask
+              ? "Loading task..."
+              : isEdit
+              ? "Update Task"
+              : "Create Task"}
           </button>
           <button type="button" onClick={() => navigate(-1)} className="btn-secondary">
             Cancel

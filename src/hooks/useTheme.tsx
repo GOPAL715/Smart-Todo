@@ -1,18 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-
-type ThemeMode = "light" | "dark" | "system";
-
-interface ThemeContext {
-  mode: ThemeMode;
-  resolved: "light" | "dark";
-  setMode: (mode: ThemeMode) => void;
-}
-
-const Ctx = createContext<ThemeContext>({
-  mode: "system",
-  resolved: "light",
-  setMode: () => {},
-});
+import { type ReactNode, useEffect, useState, useCallback } from "react";
+import { ThemeContext } from "@/hooks/useThemeContext";
+import type { ThemeMode } from "@/hooks/useThemeContext";
 
 function getSystemTheme(): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -61,9 +49,5 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener("change", handler);
   }, [mode]);
 
-  return <Ctx.Provider value={{ mode, resolved, setMode }}>{children}</Ctx.Provider>;
-}
-
-export function useTheme() {
-  return useContext(Ctx);
+  return <ThemeContext.Provider value={{ mode, resolved, setMode }}>{children}</ThemeContext.Provider>;
 }

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuthContext";
 import { getAuthErrorMessage } from "@/utils/authErrors";
 import { Bell, CheckCircle2, Clock, Calendar } from "lucide-react";
 

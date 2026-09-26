@@ -8,6 +8,8 @@ import {
   shareFailureMessage,
 } from "@/services/shareService";
 import { Users, UserPlus, Trash2 } from "lucide-react";
+import { queryKeys } from "@/services/queryKeys";
+import { useAuth } from "@/hooks/useAuthContext";
 import type { SharePermission } from "@/types";
 
 interface ShareTaskPanelProps {
@@ -31,20 +33,21 @@ export function ShareTaskPanel({
   onLeft,
 }: ShareTaskPanelProps) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [email, setEmail] = useState("");
   const [permission, setPermission] = useState<SharePermission>("VIEW");
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
   const { data: shares = [] } = useQuery({
-    queryKey: ["shares", taskId],
+    queryKey: queryKeys.taskShares(user?.id, taskId),
     queryFn: () => listTaskShares(taskId),
-    enabled: canManage,
+    enabled: canManage && !!user,
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["shares", taskId] });
-    queryClient.invalidateQueries({ queryKey: ["share-overview"] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.taskShares(user?.id, taskId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.shareOverview(user?.id) });
   };
 
   const shareMutation = useMutation({

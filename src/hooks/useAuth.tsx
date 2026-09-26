@@ -1,26 +1,17 @@
-import { type ReactNode, createContext, useContext, useEffect, useState, useCallback } from "react";
-import type { Session, User } from "@supabase/supabase-js";
+import { type ReactNode, useEffect, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
 import { clearAuthenticatedCaches } from "@/utils/pwaCache";
 import { getAuthErrorMessage } from "@/utils/authErrors";
+import { AuthContext, type AuthContextValue } from "@/hooks/useAuthContext";
 import type { Profile } from "@/types";
-
-interface AuthContextValue {
-  user: User | null;
-  profile: Profile | null;
-  session: Session | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -29,17 +20,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq("id", userId)
       .maybeSingle();
 
-    if (error) {
-      return;
-    }
+    if (error) return;
     setProfile(data as Profile | null);
   }, []);
 
+  /**
+   * Discards every cached server response and cancels anything in flight.
+   *
+   * Sign-out previously cleared only the legacy Cache Storage entry, which
+   * current builds never create, so the previous user's tasks and notifications
+   * stayed in memory and could render for whoever signed in next. PWA cache
+   * isolation is preserved and still runs alongside this.
+   */
+  const clearUserCaches = useCallback(async () => {
+    queryClient.cancelQueries();
+    queryClient.clear();
+    await clearAuthenticatedCaches();
+  }, [queryClient]);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       if (data.session?.user) {
-        loadProfile(data.session.user.id).finally(() => setLoading(false));
+        void loadProfile(data.session.user.id).finally(() => setLoading(false));
       } else {
         setLoading(false);
       }
@@ -48,19 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (newSession?.user) {
-        (async () => {
-          await loadProfile(newSession.user.id);
-        })();
+        void loadProfile(newSession.user.id);
       } else {
         setProfile(null);
-        void clearAuthenticatedCaches();
+        // Covers explicit sign-out, expiry and revocation alike.
+        void clearUserCaches();
       }
     });
 
     return () => {
       listener.subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, [clearUserCaches, loadProfile]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -74,29 +76,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { data: { name } },
     });
     if (error) throw new Error(getAuthErrorMessage(error));
-    if (data.user) {
-      await loadProfile(data.user.id);
-    }
+    if (data.user) await loadProfile(data.user.id);
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setProfile(null);
     setSession(null);
-    await clearAuthenticatedCaches();
-  }, []);
+    await clearUserCaches();
+  }, [clearUserCaches]);
 
-  return (
-    <AuthContext.Provider
-      value={{ user: session?.user ?? null, profile, session, loading, signIn, signUp, signOut }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-}
+  const value: AuthContextValue = {
+    user: session?.user ?? null,
+    profile,
+    session,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+  };
 
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

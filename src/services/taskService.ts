@@ -1,8 +1,8 @@
 import { supabase } from "@/services/supabase";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
-import type { Task, TaskWithRelations, TaskReminder, ReminderType, TaskStatus, TaskPriority, Recurrence } from "@/types";
+import type { Task, TaskWithRelations, TaskReminder, TaskStatus, TaskPriority, Recurrence } from "@/types";
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
-import { DEFAULT_TIMEZONE, toUtcIso, localDateStr, calculateReminderTime } from "@/utils/dateTime";
+import { DEFAULT_TIMEZONE, toUtcIso, localDateStr } from "@/utils/dateTime";
 import { attachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks } from "@/services/subtaskService";
 export interface CreateTaskInput {
@@ -90,7 +90,17 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
   if (error) throw new Error(getServiceErrorMessage(error));
   const task = mapRow(data as TaskRow);
 
-  await createRemindersForTask(task, reminderOffsets);
+  /*
+   * Reminders are created by the database, in the same transaction as this
+   * insert, via `trg_create_task_reminders_on_insert` (migration 024). The
+   * browser used to write them here, which made any insert that did not go
+   * through this function — recurrence materialisation, a service-role insert,
+   * a future caller — produce a task that would never notify.
+   *
+   * Offsets are still validated client-side so the user gets an immediate,
+   * specific message rather than a database error; the database validates
+   * independently via `tasks_reminder_offsets_valid`.
+   */
 
   if (input.tagIds && input.tagIds.length > 0) {
     // Tags are cosmetic metadata: a failed link must not fail task creation.
@@ -102,52 +112,22 @@ export async function createTask(input: CreateTaskInput, userId: string, timezon
   return task;
 }
 
-async function createRemindersForTask(task: Task, reminderOffsets: number[]): Promise<void> {
-  const reminders: Array<{
-    task_id: string;
-    reminder_type: ReminderType;
-    reminder_time: string;
-    is_sent: boolean;
-  }> = [];
-
-  for (const offset of new Set(reminderOffsets)) {
-    const type = offsetToType(offset);
-    const reminderTime = calculateReminderTime(task.start_datetime, offset);
-    if (new Date(reminderTime) <= new Date()) continue; // skip past reminders
-    reminders.push({
-      task_id: task.id,
-      reminder_type: type,
-      reminder_time: reminderTime,
-      is_sent: false,
-    });
-  }
-
-  // NOT_STARTED reminder: 10 min after start
-  const notStartedTime = new Date(new Date(task.start_datetime).getTime() + 10 * 60 * 1000).toISOString();
-  if (new Date(notStartedTime) > new Date()) {
-    reminders.push({
-      task_id: task.id,
-      reminder_type: "NOT_STARTED",
-      reminder_time: notStartedTime,
-      is_sent: false,
-    });
-  }
-
-  // OVERDUE reminder: at end time
-  if (new Date(task.end_datetime) > new Date()) {
-    reminders.push({
-      task_id: task.id,
-      reminder_type: "OVERDUE",
-      reminder_time: task.end_datetime,
-      is_sent: false,
-    });
-  }
-
-  if (reminders.length === 0) return;
-
-  const { error } = await supabase.from("task_reminders").insert(reminders);
-  if (error) throw new Error(getServiceErrorMessage(error));
-}
+/*
+ * Removed: `createRemindersForTask`.
+ *
+ * This used to build and insert reminder rows from the browser after a task
+ * insert. Reminder creation is now a database invariant — the
+ * `trg_create_task_reminders_on_insert` AFTER INSERT trigger (migration 024)
+ * calls `public.create_task_reminders_for(NEW.id)` in the same transaction —
+ * so this function was both redundant and unsafe: it could write a second,
+ * divergent set of reminders, and any insert that bypassed it produced a task
+ * that would never notify.
+ *
+ * `assertSupportedReminderOffsets` below is kept: it still runs before the
+ * insert so the user gets an immediate, specific message instead of a database
+ * constraint error, and it keeps `REMINDER_OFFSETS` as the single client-side
+ * source of truth for the supported set.
+ */
 
 function assertSupportedReminderOffsets(offsets: number[]): void {
   const supported = new Set<number>(Object.values(REMINDER_OFFSETS));
@@ -156,14 +136,6 @@ function assertSupportedReminderOffsets(offsets: number[]): void {
       throw new Error(`Unsupported reminder offset: ${offset}`);
     }
   }
-}
-
-function offsetToType(offset: number): ReminderType {
-  const entry = Object.entries(REMINDER_OFFSETS).find(([, val]) => val === offset);
-  if (!entry) {
-    throw new Error(`Unsupported reminder offset: ${offset}`);
-  }
-  return entry[0] as ReminderType;
 }
 
 export function buildTaskUpdate(input: UpdateTaskInput): Record<string, unknown> {
@@ -284,6 +256,60 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
     getSubtasks(taskId).catch(() => []),
   ]);
   return { ...task, tags, subtasks };
+}
+
+/**
+ * The outcome of loading a task together with its relations.
+ *
+ * `tagsLoaded` exists so the edit form can tell "this task genuinely has no
+ * tags" apart from "the tag request failed". Conflating the two is what made a
+ * transient network error silently detach every tag from a task.
+ */
+export interface EditableTaskLoad {
+  task: TaskWithRelations | null;
+  tagsLoaded: boolean;
+  subtasksLoaded: boolean;
+}
+
+/**
+ * Loads a task for editing, reporting whether each relation request actually
+ * succeeded instead of substituting an empty list on failure.
+ *
+ * `getTask` above deliberately degrades relations to `[]` for read-only
+ * display, where showing a task without its tags is a cosmetic problem. That is
+ * unacceptable in the edit form, because the form writes tags back: an empty
+ * list produced by a failure would be submitted as "this task has no tags" and
+ * delete them. Callers must therefore block saving while `tagsLoaded` is false.
+ */
+export async function getTaskForEdit(taskId: string): Promise<EditableTaskLoad> {
+  const task = await getTaskBase(taskId);
+  if (!task) return { task: null, tagsLoaded: true, subtasksLoaded: true };
+
+  const [tagsResult, subtasksResult] = await Promise.allSettled([
+    getTaskTags(taskId),
+    getSubtasks(taskId),
+  ]);
+
+  return {
+    task: {
+      ...task,
+      tags: tagsResult.status === "fulfilled" ? tagsResult.value : [],
+      subtasks: subtasksResult.status === "fulfilled" ? subtasksResult.value : [],
+    },
+    tagsLoaded: tagsResult.status === "fulfilled",
+    subtasksLoaded: subtasksResult.status === "fulfilled",
+  };
+}
+
+/** The task row on its own, with no relation loading. */
+async function getTaskBase(taskId: string): Promise<Task | null> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("id", taskId)
+    .maybeSingle();
+  if (error) throw new Error(getServiceErrorMessage(error));
+  return data ? mapRow(data as TaskRow) : null;
 }
 
 export async function getTaskReminders(taskId: string): Promise<TaskReminder[]> {

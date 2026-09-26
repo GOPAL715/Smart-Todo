@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuthContext";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, getOwnedTasks, startTask, completeTask, cancelTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
+import { queryKeys } from "@/services/queryKeys";
 import { TaskCard } from "@/components/ui/TaskCard";
 import { getGreeting, localDateStr, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
@@ -24,17 +25,17 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const [taskError, setTaskError] = useState("");
 
-  const { data: todayTasks = [] } = useQuery({ queryKey: ["tasks", "today", userTimezone], queryFn: () => getTodayTasks(userTimezone) });
-  const { data: upcomingTasks = [] } = useQuery({ queryKey: ["tasks", "upcoming"], queryFn: getUpcomingTasks });
-  const { data: overdueTasks = [] } = useQuery({ queryKey: ["tasks", "overdue"], queryFn: getOverdueTasks });
-  const { data: allTasks = [] } = useQuery({ queryKey: ["tasks", "all"], queryFn: () => listTasks() });
+  const { data: todayTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "today"), queryFn: () => getTodayTasks(userTimezone), enabled: !!user });
+  const { data: upcomingTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "upcoming"), queryFn: getUpcomingTasks, enabled: !!user });
+  const { data: overdueTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "overdue"), queryFn: getOverdueTasks, enabled: !!user });
+  const { data: allTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "all"), queryFn: () => listTasks(), enabled: !!user });
   const ownedTasks = useMemo(
     () => getOwnedTasks(allTasks, user?.id),
     [allTasks, user?.id]
   );
 
   const { data: overview } = useQuery({
-    queryKey: ["share-overview"],
+    queryKey: queryKeys.shareOverview(user?.id),
     queryFn: getShareOverview,
     enabled: !!user,
   });
@@ -57,7 +58,7 @@ export function DashboardPage() {
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
     onError: () => {
       setTaskError("Could not start task. Please try again.");
@@ -67,7 +68,7 @@ export function DashboardPage() {
   const completeMutation = useMutation({
     mutationFn: (task: Task) => completeTask(task.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
     onError: () => {
       setTaskError("Could not complete task. Please try again.");
@@ -77,7 +78,7 @@ export function DashboardPage() {
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
     onError: () => {
       setTaskError("Could not cancel task. Please try again.");

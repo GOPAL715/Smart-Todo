@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listTasks, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
 import { getTaskTagMap } from "@/services/tagService";
+import { queryKeys } from "@/services/queryKeys";
 import { localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuthContext";
 import { TaskCard } from "@/components/ui/TaskCard";
 import { Plus, Search, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -34,16 +35,18 @@ export function TaskListPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [sort, setSort] = useState<"due" | "priority" | "title" | "created">("due");
 
-  const { data: allTasks = [] } = useQuery({ queryKey: ["tasks", "all"], queryFn: () => listTasks() });
+  const { data: allTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "all"), queryFn: () => listTasks(), enabled: !!user });
+
+  const taskIds = useMemo(() => allTasks.map((t) => t.id), [allTasks]);
 
   const { data: tagMap = {} } = useQuery({
-    queryKey: ["task-tag-map", allTasks.map((t) => t.id)],
-    queryFn: () => getTaskTagMap(allTasks.map((t) => t.id)),
-    enabled: allTasks.length > 0,
+    queryKey: queryKeys.taskTagMap(user?.id, taskIds),
+    queryFn: () => getTaskTagMap(taskIds),
+    enabled: !!user && taskIds.length > 0,
   });
 
   const { data: overview } = useQuery({
-    queryKey: ["share-overview"],
+    queryKey: queryKeys.shareOverview(user?.id),
     queryFn: getShareOverview,
     enabled: !!user,
   });
@@ -66,19 +69,19 @@ export function TaskListPage() {
 
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
   });
   const completeMutation = useMutation({
     mutationFn: (task: Task) => completeTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
   });
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
   });
   const deleteMutation = useMutation({
     mutationFn: (task: Task) => deleteTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
     onError: () => {
       setTaskError("Could not delete task. Please try again.");
     },
