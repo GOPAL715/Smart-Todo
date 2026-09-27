@@ -4,25 +4,62 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
 import { clearAuthenticatedCaches } from "@/utils/pwaCache";
 import { getAuthErrorMessage } from "@/utils/authErrors";
+import {
+  fetchProfile,
+  nextProfileState,
+  updateProfileTimezone as persistTimezone,
+  type ProfileResult,
+} from "@/services/profileService";
 import { AuthContext, type AuthContextValue } from "@/hooks/useAuthContext";
 import type { Profile } from "@/types";
 
+const NOT_SIGNED_IN: ProfileResult = {
+  ok: false,
+  error: "You are not signed in.",
+};
+
+interface ProfileState {
+  profile: Profile | null;
+  error: string | null;
+}
+
+const NO_PROFILE: ProfileState = { profile: null, error: null };
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  // Profile and its error are one state object so they can never be updated
+  // inconsistently, and so a single atomic update replaces both.
+  const [profileState, setProfileState] = useState<ProfileState>(NO_PROFILE);
   const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
+  const { profile, error: profileError } = profileState;
 
-  const loadProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (error) return;
-    setProfile(data as Profile | null);
+  /*
+   * Folds a result into the profile state.
+   *
+   * This used to be `if (error) return;`, which discarded the failure entirely:
+   * the profile silently kept its previous value (usually `null`) and the user
+   * was quietly treated as being in `DEFAULT_TIMEZONE`. `nextProfileState` keeps
+   * the good profile and records the error instead, so the failure is
+   * observable without any consumer re-reading the row.
+   *
+   * The previous state is read from the updater's argument rather than from
+   * `profileState`, because two profile loads can overlap (startup plus an
+   * auth-state change) and a closure value would let the slower response
+   * overwrite the newer one.
+   */
+  const applyProfileResult = useCallback((result: ProfileResult) => {
+    setProfileState((current) => nextProfileState(current.profile, result));
   }, []);
+
+  const loadProfile = useCallback(
+    async (userId: string): Promise<ProfileResult> => {
+      const result = await fetchProfile(userId);
+      applyProfileResult(result);
+      return result;
+    },
+    [applyProfileResult]
+  );
 
   /**
    * Discards every cached server response and cancels anything in flight.
@@ -42,6 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       if (data.session?.user) {
+        // `loading` must settle on a failed profile read too, or the app would
+        // sit on the ProtectedRoute spinner forever.
         void loadProfile(data.session.user.id).finally(() => setLoading(false));
       } else {
         setLoading(false);
@@ -53,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (newSession?.user) {
         void loadProfile(newSession.user.id);
       } else {
-        setProfile(null);
+        setProfileState(NO_PROFILE);
         // Covers explicit sign-out, expiry and revocation alike.
         void clearUserCaches();
       }
@@ -81,19 +120,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-    setProfile(null);
+    setProfileState(NO_PROFILE);
     setSession(null);
     await clearUserCaches();
   }, [clearUserCaches]);
+
+  const refreshProfile = useCallback(async (): Promise<ProfileResult> => {
+    const userId = session?.user?.id;
+    if (!userId) return NOT_SIGNED_IN;
+    return loadProfile(userId);
+  }, [loadProfile, session]);
+
+  /**
+   * Writes the timezone and folds the returned row straight into auth state.
+   *
+   * Settings previously updated `profiles` itself and stopped there, so the
+   * database moved to the new zone while `useUserTimezone()` kept returning the
+   * old one: the screen reported "Timezone updated" and every task created
+   * afterwards in that session was converted with the stale offset. Routing the
+   * write through here makes the in-memory profile the single source of truth,
+   * and the returned row is what updates it, so the two cannot disagree.
+   */
+  const updateProfileTimezone = useCallback(
+    async (timezone: string): Promise<ProfileResult> => {
+      const userId = session?.user?.id;
+      if (!userId) return NOT_SIGNED_IN;
+
+      const result = await persistTimezone(userId, timezone);
+      applyProfileResult(result);
+      return result;
+    },
+    [applyProfileResult, session]
+  );
 
   const value: AuthContextValue = {
     user: session?.user ?? null,
     profile,
     session,
     loading,
+    profileError,
     signIn,
     signUp,
     signOut,
+    refreshProfile,
+    updateProfileTimezone,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

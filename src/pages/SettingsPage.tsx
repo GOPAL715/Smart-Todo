@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useTheme } from "@/hooks/useThemeContext";
-import { supabase } from "@/services/supabase";
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/utils/dateTime";
 import { ArrowLeft, Globe, Check, Search, Sun, Moon, Monitor } from "lucide-react";
 
@@ -29,7 +28,7 @@ const THEME_OPTIONS = [
 ];
 
 export function SettingsPage() {
-  const { user, profile } = useAuth();
+  const { profile, updateProfileTimezone } = useAuth();
   const { mode, setMode } = useTheme();
   const navigate = useNavigate();
 
@@ -49,19 +48,31 @@ export function SettingsPage() {
     return all.filter((tz) => tz.toLowerCase().includes(q) || zoneLabel(tz).toLowerCase().includes(q));
   }, [search]);
 
+  /**
+   * Saves through the auth state rather than writing `profiles` directly.
+   *
+   * This screen used to issue its own update and stop there. The database
+   * received the new timezone, but the in-memory profile did not, so
+   * `useUserTimezone()` kept returning the old zone for the rest of the session
+   * while the screen reported "Timezone updated" — and every task created after
+   * that point was converted with the stale UTC offset. Delegating to
+   * `updateProfileTimezone` makes the profile in auth state the single source of
+   * truth, so the new zone is in effect immediately with no page reload.
+   *
+   * Success is only reported when the profile in memory was actually updated
+   * from the row the database returned; a failure reports the mapped error
+   * instead of silently pretending the save worked.
+   */
   const handleSave = async () => {
-    if (!user) return;
     setSaving(true);
     setStatus(null);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ timezone: selected, updated_at: new Date().toISOString() })
-        .eq("id", user.id);
-      if (error) throw error;
-      setStatus({ tone: "success", text: "Timezone updated." });
-    } catch {
-      setStatus({ tone: "error", text: "We couldn't update your timezone. Please try again." });
+      const result = await updateProfileTimezone(selected);
+      if (result.ok) {
+        setStatus({ tone: "success", text: "Timezone updated." });
+      } else {
+        setStatus({ tone: "error", text: result.error });
+      }
     } finally {
       setSaving(false);
     }

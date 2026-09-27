@@ -148,3 +148,72 @@ describe("getRelativeTimeLabel", () => {
     expect(getRelativeTimeLabel("2026-01-15T09:00:30Z", now)).toBe("Starting now");
   });
 });
+
+
+/*
+ * DST regression coverage for America/New_York.
+ *
+ * The date/time helpers were never changed by Phase 14A; these tests exist to
+ * prove the timezone-switching fix did not alter their behaviour, and to pin the
+ * spring-forward boundary that Asia/Kolkata (no DST) cannot exercise.
+ *
+ * 2026 US DST begins Sunday 2026-03-08 at 02:00 local: 02:00-02:59 never occurs,
+ * and UTC-5 (EST) becomes UTC-4 (EDT) for every later instant that day.
+ */
+describe("DST spring forward in America/New_York", () => {
+  it("uses the pre-transition offset before the boundary", () => {
+    // 2026-03-07 is still EST (UTC-5).
+    expect(toUtcIso(new Date(2026, 2, 7), "12:00", "America/New_York")).toBe(
+      "2026-03-07T17:00:00.000Z"
+    );
+  });
+
+  it("uses the post-transition offset after the boundary", () => {
+    // 2026-03-08 is EDT (UTC-4), so the same wall clock is one hour earlier in UTC.
+    expect(toUtcIso(new Date(2026, 2, 8), "12:00", "America/New_York")).toBe(
+      "2026-03-08T16:00:00.000Z"
+    );
+  });
+
+  it("resolves instants either side of the boundary to the correct local time", () => {
+    // 06:30Z is 01:30 EST; 07:30Z is 03:30 EDT. The 02:00 hour is skipped.
+    expect(formatTime("2026-03-08T06:30:00Z", "America/New_York")).toBe("1:30 AM");
+    expect(formatTime("2026-03-08T07:30:00Z", "America/New_York")).toBe("3:30 AM");
+  });
+
+  it("keeps the calendar day correct for an instant just after local midnight", () => {
+    // 04:30Z on 2026-03-08 is still 23:30 on 2026-03-07 in New York.
+    expect(localDateStr(new Date("2026-03-08T04:30:00Z"), "America/New_York")).toBe("2026-03-07");
+    // One hour later the local date rolls over.
+    expect(localDateStr(new Date("2026-03-08T05:30:00Z"), "America/New_York")).toBe("2026-03-08");
+  });
+
+  it("agrees with a DST-free zone on the same wall-clock conversion", () => {
+    // Asia/Kolkata has no DST, so 12:00 there is a constant UTC+5:30 year-round.
+    // Confirms the two zones are genuinely treated differently rather than one
+    // offset being applied to both.
+    expect(toUtcIso(new Date(2026, 2, 8), "12:00", "Asia/Kolkata")).toBe(
+      "2026-03-08T06:30:00.000Z"
+    );
+  });
+
+  it("round-trips a post-transition wall clock back to the same local time", () => {
+    const iso = toUtcIso(new Date(2026, 2, 8), "09:00", "America/New_York");
+    expect(formatTime(iso, "America/New_York")).toBe("9:00 AM");
+    expect(localDateStr(new Date(iso), "America/New_York")).toBe("2026-03-08");
+  });
+
+  it("keeps a recurring 09:00 task at 09:00 local across the transition", () => {
+    // The wall clock must not drift just because the UTC offset changed, which
+    // is what the server-side recurrence generator relies on.
+    const beforeTransition = toUtcIso(new Date(2026, 2, 7), "09:00", "America/New_York");
+    const afterTransition = toUtcIso(new Date(2026, 2, 8), "09:00", "America/New_York");
+
+    expect(formatTime(beforeTransition, "America/New_York")).toBe("9:00 AM");
+    expect(formatTime(afterTransition, "America/New_York")).toBe("9:00 AM");
+    // The UTC instants are 23 hours apart, not 24: the local day is still 24h.
+    expect(new Date(afterTransition).getTime() - new Date(beforeTransition).getTime()).toBe(
+      23 * 60 * 60 * 1000
+    );
+  });
+});
