@@ -12,7 +12,15 @@ import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useDismissable } from "@/hooks/useDismissable";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
-import { getNotificationButtonLabel, getNotificationPanelState } from "@/utils/notificationPanel";
+import {
+  getNotificationButtonLabel,
+  getNotificationPanelState,
+  getNotificationTriggerAria,
+  getNotificationPanelA11y,
+  resolveInitialFocusTarget,
+  NOTIFICATION_PANEL_ID,
+  NOTIFICATION_PANEL_HEADING_ID,
+} from "@/utils/notificationPanel";
 import { getUnreadPollInterval } from "@/utils/dashboardAnalytics";
 
 export function AppLayout() {
@@ -25,6 +33,7 @@ export function AppLayout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const notifPanelRef = useRef<HTMLDivElement>(null);
   const notifButtonRef = useRef<HTMLButtonElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -113,6 +122,30 @@ export function AppLayout() {
   /* Escape-to-close and focus restoration for both overlay surfaces. */
   useDismissable(notifOpen, () => setNotifOpen(false), notifButtonRef);
   useDismissable(sidebarOpen, () => setSidebarOpen(false), menuButtonRef);
+
+  /*
+   * Move focus into the panel when it opens.
+   *
+   * Without this a keyboard user activates the trigger, hears `aria-expanded`
+   * flip, and is still sitting on the button with no indication of what just
+   * appeared or where to go next. Focusing the panel container (which is
+   * `tabIndex: -1`, so it is not in the tab order) announces the panel's name
+   * and leaves the *next* Tab to reach "Mark all read" — rather than dropping
+   * the user straight onto an action they did not choose.
+   *
+   * The surface is non-modal, so no focus trap is applied: the page behind stays
+   * reachable, and Shift+Tab from here returns to the trigger, exactly as the
+   * visual behaviour already implies. Escape and close return focus to the
+   * trigger via `useDismissable`.
+   *
+   * This runs on the open transition only. Loading a further page, marking a
+   * notification read, or deleting one re-renders the panel without moving
+   * focus, so dynamic content never steals the user's place.
+   */
+  useEffect(() => {
+    if (!notifOpen) return;
+    resolveInitialFocusTarget(notifPanelRef.current)?.focus();
+  }, [notifOpen]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -237,9 +270,7 @@ export function AppLayout() {
                 onClick={() => setNotifOpen((v) => !v)}
                 className="relative p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 aria-label={getNotificationButtonLabel(unreadCount)}
-                aria-expanded={notifOpen}
-                aria-controls="notifications-panel"
-                aria-haspopup="dialog"
+                {...getNotificationTriggerAria(notifOpen)}
               >
                 <Bell size={20} className="text-neutral-600 dark:text-neutral-400" />
                 {unreadCount > 0 && (
@@ -254,13 +285,18 @@ export function AppLayout() {
 
               {notifOpen && (
                 <div
-                  id="notifications-panel"
-                  role="dialog"
-                  aria-label="Notifications"
+                  ref={notifPanelRef}
+                  id={NOTIFICATION_PANEL_ID}
                   className="absolute right-0 top-full mt-2 w-80 sm:w-96 max-h-[70vh] bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-lg flex flex-col animate-slide-down"
+                  {...getNotificationPanelA11y()}
                 >
                   <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-neutral-800">
-                    <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">Notifications</h3>
+                    <h3
+                      id={NOTIFICATION_PANEL_HEADING_ID}
+                      className="font-semibold text-neutral-900 dark:text-neutral-100"
+                    >
+                      Notifications
+                    </h3>
                     {notifications.length > 0 && (
                       <button
                         type="button"
@@ -365,7 +401,17 @@ export function AppLayout() {
                     */}
                     {notifState === "ready" && notificationPages.hasMore && (
                       <div className="p-3 border-t border-neutral-100 dark:border-neutral-800">
-                        <p className="text-xs text-neutral-400 text-center mb-2">
+                        {/*
+                          A polite live region: loading another page changes this
+                          text and nothing else visibly changes size, so without it
+                          a screen-reader user gets no confirmation that the click
+                          did anything.
+                        */}
+                        <p
+                          role="status"
+                          aria-live="polite"
+                          className="text-xs text-neutral-400 text-center mb-2"
+                        >
                           Showing {notifications.length.toLocaleString()} of{" "}
                           {notificationPages.total?.toLocaleString()}
                         </p>
