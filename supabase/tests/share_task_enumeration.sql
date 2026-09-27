@@ -24,15 +24,25 @@ SELECT ok(
   'authenticated can still execute share_task'
 );
 
+-- The three identities are created through auth.users ONLY.
+--
+-- The `on_auth_user_created` trigger (migrations 003 / 023) already inserts one
+-- profiles row per auth.users row. This file previously ALSO inserted those
+-- three profiles rows explicitly, so its own setup collided with the row the
+-- trigger had just written and aborted on `profiles_pkey`. The display names
+-- are supplied in `raw_user_meta_data` instead, which is where the trigger reads
+-- them from, so the resulting rows are identical to what the explicit INSERT
+-- produced. The other suites (rls_integration, reminder_lifecycle) already
+-- follow this same auth.users-only pattern.
+--
+-- No assertion below reads a profile name; the enumeration contract is that
+-- `recipient` is always empty, so nothing here depends on the display values.
+-- The three identities stay distinct (owner / collaborator / stranger), which is
+-- what keeps the self-share and new-share cases genuinely different requests.
 INSERT INTO auth.users (id,aud,role,email,encrypted_password,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) VALUES
-('00000000-0000-0000-0000-0000000000a1','authenticated','authenticated','owner@example.test','','{}','{}',now(),now()),
-('00000000-0000-0000-0000-0000000000b1','authenticated','authenticated','collab@example.test','','{}','{}',now(),now()),
-('00000000-0000-0000-0000-0000000000c1','authenticated','authenticated','stranger@example.test','','{}','{}',now(),now());
-
-INSERT INTO public.profiles (id,name,email) VALUES
-('00000000-0000-0000-0000-0000000000a1','Owner','owner@example.test'),
-('00000000-0000-0000-0000-0000000000b1','Collaborator','collab@example.test'),
-('00000000-0000-0000-0000-0000000000c1','Stranger','stranger@example.test');
+('00000000-0000-0000-0000-0000000000a1','authenticated','authenticated','owner@example.test','','{}','{"name":"Owner"}',now(),now()),
+('00000000-0000-0000-0000-0000000000b1','authenticated','authenticated','collab@example.test','','{}','{"name":"Collaborator"}',now(),now()),
+('00000000-0000-0000-0000-0000000000c1','authenticated','authenticated','stranger@example.test','','{}','{"name":"Stranger"}',now(),now());
 
 -- Owner's task and a task owned by someone else.
 INSERT INTO public.tasks (id,user_id,title,task_date,start_time,end_time,start_datetime,end_datetime,duration_minutes) VALUES
