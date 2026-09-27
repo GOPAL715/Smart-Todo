@@ -176,6 +176,25 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex">
+      {/*
+        Skip to main content.
+
+        Without it a keyboard user tabs past the brand, all four nav items, the
+        profile block, Sign out, New Task and the notification trigger on every
+        page before reaching any content. The link is the first focusable element
+        on the page and is hidden with the standard visually-hidden pattern, so it
+        occupies no space and cannot shift the layout until it is focused.
+
+        `<main>` carries `id="main-content"`, and navigating to a fragment id
+        moves focus there natively, so no focus trap or manual focus handling is
+        involved.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-primary-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+      >
+        Skip to main content
+      </a>
       {/* Sidebar - desktop sticky, mobile drawer */}
       <aside
         id="app-navigation"
@@ -446,7 +465,7 @@ export function AppLayout() {
         )}
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+        <main id="main-content" className="flex-1 p-4 lg:p-8 overflow-x-hidden">
           <Outlet />
         </main>
       </div>

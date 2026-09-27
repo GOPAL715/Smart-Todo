@@ -8,6 +8,7 @@ import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { ArrowLeft, Save, WifiOff, Tag as TagIcon, AlertTriangle, RotateCw } from "lucide-react";
 import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getTags, createTag } from "@/services/tagService";
 import { validateTimeRange } from "@/utils/timeInput";
@@ -293,12 +294,14 @@ export function TaskFormPage() {
           <input
             id="title"
             type="text"
+            aria-invalid={!!errors.title}
+            aria-describedby={errors.title ? getFieldErrorId("title", "task") : undefined}
             className="input"
             placeholder="Complete Project Documentation"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
-          {errors.title && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.title}</p>}
+          {errors.title && <p id={getFieldErrorId("title", "task")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.title}</p>}
         </div>
 
         <div>
@@ -318,33 +321,39 @@ export function TaskFormPage() {
             <input
               id="taskDate"
               type="date"
+              aria-invalid={!!errors.taskDate}
+              aria-describedby={errors.taskDate ? getFieldErrorId("taskDate", "task") : undefined}
               className="input"
               value={taskDate}
               onChange={(e) => setTaskDate(e.target.value)}
             />
-            {errors.taskDate && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.taskDate}</p>}
+            {errors.taskDate && <p id={getFieldErrorId("taskDate", "task")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.taskDate}</p>}
           </div>
           <div>
             <label className="label" htmlFor="startTime">Start Time</label>
             <input
               id="startTime"
               type="time"
+              aria-invalid={!!errors.startTime}
+              aria-describedby={errors.startTime ? getFieldErrorId("startTime", "task") : undefined}
               className="input"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
             />
-            {errors.startTime && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.startTime}</p>}
+            {errors.startTime && <p id={getFieldErrorId("startTime", "task")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.startTime}</p>}
           </div>
           <div>
             <label className="label" htmlFor="endTime">End Time</label>
             <input
               id="endTime"
               type="time"
+              aria-invalid={!!errors.endTime}
+              aria-describedby={errors.endTime ? getFieldErrorId("endTime", "task") : undefined}
               className="input"
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
             />
-            {errors.endTime && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.endTime}</p>}
+            {errors.endTime && <p id={getFieldErrorId("endTime", "task")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.endTime}</p>}
           </div>
         </div>
 

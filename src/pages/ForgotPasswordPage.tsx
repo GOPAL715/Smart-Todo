@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { useAuth } from "@/hooks/useAuthContext";
 import { isValidEmail, NEUTRAL_RESET_MESSAGE } from "@/services/passwordResetService";
+import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 
 /**
  * Requests a password-reset email.
@@ -58,9 +59,9 @@ export function ForgotPasswordPage() {
         <div className="card p-8">
           {sent ? (
             <>
-              <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+              <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                 Check your email
-              </h2>
+              </h1>
               {/* Same neutral copy regardless of whether the address is registered. */}
               <p className="text-neutral-500 dark:text-neutral-400 mb-6">{NEUTRAL_RESET_MESSAGE}</p>
               <p className="text-neutral-500 dark:text-neutral-400 mb-6 text-sm">
@@ -73,9 +74,9 @@ export function ForgotPasswordPage() {
             </>
           ) : (
             <>
-              <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+              <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                 Reset your password
-              </h2>
+              </h1>
               <p className="text-neutral-500 dark:text-neutral-400 mb-8">
                 Enter your email address and we'll send you a reset link
               </p>
@@ -96,13 +97,15 @@ export function ForgotPasswordPage() {
                     type="email"
                     required
                     autoComplete="email"
+                    aria-invalid={!!fieldError}
+                    aria-describedby={fieldError ? getFieldErrorId("email", "forgot-password") : undefined}
                     className={`input ${fieldError ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                     placeholder="you@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
                   {fieldError && (
-                    <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldError}</p>
+                    <p id={getFieldErrorId("email", "forgot-password")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldError}</p>
                   )}
                 </div>
                 <button type="submit" disabled={loading} className="btn-primary w-full">

@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { getAuthErrorMessage } from "@/utils/authErrors";
 import { getPasswordStrength, validateNewPassword } from "@/utils/passwordPolicy";
+import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 import { Bell } from "lucide-react";
 
 export function SignupPage() {
@@ -63,7 +64,7 @@ export function SignupPage() {
           SmartTodo
         </div>
         <div className="card p-8">
-          <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Create account</h2>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Create account</h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">Start managing your tasks smartly</p>
 
           {error && (
@@ -79,12 +80,14 @@ export function SignupPage() {
                 id="name"
                 type="text"
                 required
+                aria-invalid={!!fieldErrors.name}
+                aria-describedby={fieldErrors.name ? getFieldErrorId("name", "signup") : undefined}
                 className="input"
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-              {fieldErrors.name && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.name}</p>}
+              {fieldErrors.name && <p id={getFieldErrorId("name", "signup")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.name}</p>}
             </div>
             <div>
               <label className="label" htmlFor="email">Email</label>
@@ -92,12 +95,14 @@ export function SignupPage() {
                 id="email"
                 type="email"
                 required
+                aria-invalid={!!fieldErrors.email}
+                aria-describedby={fieldErrors.email ? getFieldErrorId("email", "signup") : undefined}
                 className="input"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              {fieldErrors.email && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.email}</p>}
+              {fieldErrors.email && <p id={getFieldErrorId("email", "signup")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.email}</p>}
             </div>
             <div>
               <label className="label" htmlFor="password">Password</label>
@@ -105,6 +110,8 @@ export function SignupPage() {
                 id="password"
                 type="password"
                 required
+                aria-invalid={!!fieldErrors.password}
+                aria-describedby={fieldErrors.password ? getFieldErrorId("password", "signup") : undefined}
                 className="input"
                 placeholder="At least 8 characters with mixed case, number, and special char"
                 value={password}
@@ -112,7 +119,7 @@ export function SignupPage() {
                 onFocus={() => setShowPasswordRequirements(true)}
                 onBlur={() => setShowPasswordRequirements(false)}
               />
-              {fieldErrors.password && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>}
+              {fieldErrors.password && <p id={getFieldErrorId("password", "signup")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>}
               {password && (
                 <div className="mt-1 animate-fade-in">
                   <div className="flex gap-1">
@@ -145,12 +152,14 @@ export function SignupPage() {
                 id="confirmPassword"
                 type="password"
                 required
+                aria-invalid={!!fieldErrors.confirmPassword}
+                aria-describedby={fieldErrors.confirmPassword ? getFieldErrorId("confirmPassword", "signup") : undefined}
                 className="input"
                 placeholder="Confirm your password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
-              {fieldErrors.confirmPassword && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.confirmPassword}</p>}
+              {fieldErrors.confirmPassword && <p id={getFieldErrorId("confirmPassword", "signup")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.confirmPassword}</p>}
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Creating account..." : "Create account"}

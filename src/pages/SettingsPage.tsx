@@ -190,6 +190,7 @@ export function SettingsPage() {
             type="text"
             className="input pl-9"
             placeholder="Search timezones..."
+            aria-label="Search timezones"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -206,6 +207,7 @@ export function SettingsPage() {
                   key={tz}
                   type="button"
                   onClick={() => setSelected(tz)}
+                  aria-pressed={isCurrent}
                   className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors ${
                     isCurrent
                       ? "bg-primary-50 dark:bg-primary-950"
@@ -218,7 +220,7 @@ export function SettingsPage() {
                     </p>
                     <p className="text-xs text-neutral-400 truncate">{zoneLabel(tz)}</p>
                   </div>
-                  {isCurrent && <Check size={16} className="text-primary-600 dark:text-primary-400 shrink-0" />}
+                  {isCurrent && <Check size={16} aria-hidden="true" className="text-primary-600 dark:text-primary-400 shrink-0" />}
                 </button>
               );
             })

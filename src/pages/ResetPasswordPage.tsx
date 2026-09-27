@@ -7,6 +7,7 @@ import {
   validateNewPassword,
   type PasswordField,
 } from "@/utils/passwordPolicy";
+import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 
 /**
  * Sets a new password after a recovery link has established a session.
@@ -85,9 +86,9 @@ export function ResetPasswordPage() {
               <Bell size={24} />
               SmartTodo
             </div>
-            <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+            <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
               This link is no longer valid
-            </h2>
+            </h1>
             <p className="text-neutral-500 dark:text-neutral-400 mb-6">
               Password reset links expire after a short time and can only be used once.
               Please request a new one.
@@ -107,9 +108,9 @@ export function ResetPasswordPage() {
         <div className="w-full max-w-md">
           <div className="card p-8 text-center">
             <CheckCircle2 size={40} className="mx-auto mb-4 text-primary-600" />
-            <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+            <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
               Password updated
-            </h2>
+            </h1>
             <p className="text-neutral-500 dark:text-neutral-400 mb-6">
               Your password has been changed. You are now signed in.
             </p>
@@ -134,9 +135,9 @@ export function ResetPasswordPage() {
           SmartTodo
         </div>
         <div className="card p-8">
-          <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
             Choose a new password
-          </h2>
+          </h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">
             Use a password you haven't used for this account before
           </p>
@@ -157,13 +158,15 @@ export function ResetPasswordPage() {
                 type="password"
                 required
                 autoComplete="new-password"
+                aria-invalid={!!fieldErrors.password}
+                aria-describedby={fieldErrors.password ? getFieldErrorId("password", "reset") : undefined}
                 className={`input ${fieldErrors.password ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                 placeholder="At least 8 characters with mixed case, number, and special char"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
               {fieldErrors.password && (
-                <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>
+                <p id={getFieldErrorId("password", "reset")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>
               )}
               {password && (
                 <div className="mt-1 animate-fade-in">
@@ -194,13 +197,15 @@ export function ResetPasswordPage() {
                 type="password"
                 required
                 autoComplete="new-password"
+                aria-invalid={!!fieldErrors.confirmPassword}
+                aria-describedby={fieldErrors.confirmPassword ? getFieldErrorId("confirmPassword", "reset") : undefined}
                 className={`input ${fieldErrors.confirmPassword ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                 placeholder="Confirm your new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
               {fieldErrors.confirmPassword && (
-                <p className="text-xs text-error-600 dark:text-error-400 mt-1">
+                <p id={getFieldErrorId("confirmPassword", "reset")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">
                   {fieldErrors.confirmPassword}
                 </p>
               )}

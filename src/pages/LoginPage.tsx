@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { getAuthErrorMessage } from "@/utils/authErrors";
+import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 import { Bell, CheckCircle2, Clock, Calendar } from "lucide-react";
 
 export function LoginPage() {
@@ -53,9 +54,9 @@ export function LoginPage() {
           </div>
         </div>
         <div className="space-y-6">
-          <h1 className="text-4xl font-bold leading-tight">
+          <p className="text-4xl font-bold leading-tight">
             Never miss a task again.
-          </h1>
+          </p>
           <p className="text-primary-100 text-lg">
             Smart reminders that notify you at the right time — 1 hour before,
             30 minutes before, 10 minutes before, and at start time.
@@ -77,7 +78,7 @@ export function LoginPage() {
             <Bell size={24} />
             SmartTodo
           </div>
-          <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Welcome back</h2>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Welcome back</h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">Sign in to your account</p>
 
           {error && (
@@ -93,12 +94,14 @@ export function LoginPage() {
                 id="email"
                 type="email"
                 required
+                aria-invalid={!!fieldErrors.email}
+                aria-describedby={fieldErrors.email ? getFieldErrorId("email", "login") : undefined}
                 className={`input ${fieldErrors.email ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              {fieldErrors.email && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.email}</p>}
+              {fieldErrors.email && <p id={getFieldErrorId("email", "login")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.email}</p>}
             </div>
             <div>
               <label className="label" htmlFor="password">Password</label>
@@ -106,12 +109,14 @@ export function LoginPage() {
                 id="password"
                 type="password"
                 required
+                aria-invalid={!!fieldErrors.password}
+                aria-describedby={fieldErrors.password ? getFieldErrorId("password", "login") : undefined}
                 className={`input ${fieldErrors.password ? "border-error-500 focus:border-error-500 focus:ring-error-200" : ""}`}
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
-              {fieldErrors.password && <p className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>}
+              {fieldErrors.password && <p id={getFieldErrorId("password", "login")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{fieldErrors.password}</p>}
             </div>
             <div className="flex justify-end">
               <Link
