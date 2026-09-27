@@ -9,6 +9,7 @@ import { ArrowLeft, Save, WifiOff, Tag as TagIcon, AlertTriangle, RotateCw } fro
 import { useEffect } from "react";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getFieldErrorId } from "@/utils/fieldErrorA11y";
+import { RETRY_LABEL } from "@/utils/retryControl";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getTags, createTag } from "@/services/tagService";
 import { validateTimeRange } from "@/utils/timeInput";
@@ -273,7 +274,7 @@ export function TaskFormPage() {
             className="btn-secondary mt-3"
           >
             <RotateCw size={16} />
-            Retry loading
+            {RETRY_LABEL}
           </button>
         </div>
       )}

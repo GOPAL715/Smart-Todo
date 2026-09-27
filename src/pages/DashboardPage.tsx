@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users, Flag, RotateCw } from "lucide-react";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getActionErrorMessage } from "@/utils/appError";
+import { RETRY_LABEL } from "@/utils/retryControl";
 import type { Task, SharedWithMe } from "@/types";
 
 const RANGE_OPTIONS: { key: AnalyticsRange; label: string }[] = [
@@ -235,7 +236,7 @@ export function DashboardPage() {
           </p>
           <button type="button" onClick={() => void refetchStats()} className="btn-secondary mt-3">
             <RotateCw size={16} />
-            Try again
+            {RETRY_LABEL}
           </button>
         </div>
       )}

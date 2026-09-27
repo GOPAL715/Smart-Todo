@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, LayoutDashboard, ListTodo, Calendar, LogOut, Plus, CheckCheck, X, Clock, Settings, WifiOff, Menu, AlertTriangle, RotateCw } from "lucide-react";
 import { listNotificationsPage, getUnreadCount, NOTIFICATION_PAGE_SIZE, markAsRead, markAllAsRead, deleteNotification } from "@/services/notificationService";
 import { usePagedCollection } from "@/hooks/usePagedCollection";
+import { RETRY_LABEL } from "@/utils/retryControl";
 import { queryKeys } from "@/services/queryKeys";
 import type { Notification } from "@/types";
 import { formatDateTime } from "@/utils/dateTime";
@@ -354,7 +355,7 @@ export function AppLayout() {
                           className="btn-secondary"
                         >
                           <RotateCw size={14} />
-                          Try again
+                          {RETRY_LABEL}
                         </button>
                       </div>
                     )}

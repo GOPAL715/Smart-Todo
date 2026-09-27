@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useTheme } from "@/hooks/useThemeContext";
 import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/utils/dateTime";
+import { RETRY_LABEL } from "@/utils/retryControl";
 import { ArrowLeft, Globe, Check, Search, Sun, Moon, Monitor } from "lucide-react";
 
 function zoneLabel(tz: string): string {
@@ -119,7 +120,7 @@ export function SettingsPage() {
             onClick={() => void handleRetryProfile()}
             className="text-sm font-medium underline shrink-0"
           >
-            Try again
+            {RETRY_LABEL}
           </button>
         </div>
       )}

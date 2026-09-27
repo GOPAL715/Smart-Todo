@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, RotateCw } from "lucide-react";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getDayCellLabel } from "@/utils/notificationPanel";
+import { RETRY_LABEL } from "@/utils/retryControl";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -142,7 +143,7 @@ export function CalendarPage() {
                 className="btn-secondary mt-3"
               >
                 <RotateCw size={16} />
-                Try again
+                {RETRY_LABEL}
               </button>
             </div>
           )}

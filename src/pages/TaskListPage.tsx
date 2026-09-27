@@ -12,6 +12,14 @@ import { useAuth } from "@/hooks/useAuthContext";
 import { TaskCard } from "@/components/ui/TaskCard";
 import { WorkloadInsight } from "@/components/ui/WorkloadInsight";
 import { rankTasks } from "@/utils/taskIntelligence";
+import {
+  TASK_FILTER_GROUP_LABEL,
+  getFilterMatchMessage,
+  getLoadedCountMessage,
+  getTaskFilterTabAria,
+  isTaskFilterActive,
+} from "@/utils/taskListView";
+import { RETRY_LABEL } from "@/utils/retryControl";
 import { Plus, Search, Trash2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Task, TaskStatus, TaskPriority, SharedWithMe } from "@/types";
@@ -250,6 +258,47 @@ export function TaskListPage() {
     );
   }, [allTasks, tab, statusFilter, priorityFilter, categoryFilter, search, tagFilter, sort, tagMap, shareMap, userTimezone, intelligenceContext]);
 
+  /*
+   * The two count lines. Both are derived here rather than inlined so the rule
+   * that decides *whether* a line appears is one pure function, not a condition
+   * buried in JSX — see `taskListView.ts` for why that matters.
+   */
+  const filterMatchMessage = useMemo(
+    () =>
+      getFilterMatchMessage({
+        matchCount: filteredTasks.length,
+        isFiltered: isTaskFilterActive({
+          tab,
+          search,
+          status: statusFilter,
+          priority: priorityFilter,
+          category: categoryFilter,
+          tag: tagFilter,
+        }),
+        hasMore: taskPages.hasMore,
+      }),
+    [
+      filteredTasks.length,
+      tab,
+      search,
+      statusFilter,
+      priorityFilter,
+      categoryFilter,
+      tagFilter,
+      taskPages.hasMore,
+    ]
+  );
+
+  const loadedCountMessage = useMemo(
+    () =>
+      getLoadedCountMessage({
+        loadedCount: allTasks.length,
+        total: taskPages.total,
+        hasMore: taskPages.hasMore,
+      }),
+    [allTasks.length, taskPages.total, taskPages.hasMore]
+  );
+
   return (
     <div className="max-w-5xl mx-auto space-y-5">
       {taskError && (
@@ -288,11 +337,23 @@ export function TaskListPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto">
+      {/*
+        A labelled group of toggle buttons, not an ARIA tablist: these buttons do
+        not move focus, have no arrow-key navigation, and all feed the single
+        list below rather than swapping panels. `aria-pressed` states which view
+        is showing; the border/colour styling below is unchanged.
+      */}
+      <div
+        role="group"
+        aria-label={TASK_FILTER_GROUP_LABEL}
+        className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto"
+      >
         {TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setTab(t.key)}
+            {...getTaskFilterTabAria(t.key, tab)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               tab === t.key
                 ? "border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400"
@@ -381,9 +442,23 @@ export function TaskListPage() {
           <option value="created">Sort: Recently created</option>
         </select>
       </div>
-      <p className="text-xs text-neutral-500 dark:text-neutral-400" aria-live="polite">
-        Showing {filteredTasks.length} of {allTasks.length} tasks
-      </p>
+      {/*
+        Match count.
+
+        This used to read "Showing {filtered} of {loaded} tasks" directly above a
+        pagination line reading "Showing {loaded} of {total} tasks" — two
+        "Showing X of Y" sentences that looked like the same message said twice.
+        This one now names what it counts, and is hidden entirely when no filter
+        is active so it cannot contradict the total below. The live region is
+        unchanged, and its announcement cadence is unchanged too: it was already
+        re-rendering on every keystroke of the search box, which is the intended
+        behaviour for a results count.
+      */}
+      {filterMatchMessage !== null && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400" aria-live="polite">
+          {filterMatchMessage}
+        </p>
+      )}
 
       {/* Task list */}
       {filteredTasks.length === 0 ? (
@@ -437,7 +512,7 @@ export function TaskListPage() {
       )}
 
       {/*
-        Pagination.
+        Pagination — the authoritative account-wide count.
 
         The count is the exact total for the account's whole task list, counted in
         Postgres, while the filters and search above still run over only the rows
@@ -446,11 +521,9 @@ export function TaskListPage() {
         still available. When everything is loaded, the two coincide and the
         sentence simplifies to the plain total.
       */}
-      {allTasks.length > 0 && taskPages.total !== null && (
+      {loadedCountMessage !== null && (
         <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center">
-          {taskPages.hasMore
-            ? `Showing ${allTasks.length.toLocaleString()} of ${taskPages.total.toLocaleString()} tasks`
-            : `${allTasks.length.toLocaleString()} task${allTasks.length === 1 ? "" : "s"}`}
+          {loadedCountMessage}
         </p>
       )}
 
@@ -465,7 +538,7 @@ export function TaskListPage() {
             onClick={() => void taskPages.loadMore()}
             className="text-sm font-medium underline shrink-0"
           >
-            Retry
+            {RETRY_LABEL}
           </button>
         </div>
       )}
