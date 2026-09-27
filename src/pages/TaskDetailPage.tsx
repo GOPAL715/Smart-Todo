@@ -61,8 +61,8 @@ export function TaskDetailPage() {
   const createSubtaskMutation = useMutation({ mutationFn: (title: string) => createSubtask(id!, title), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
   const updateSubtaskMutation = useMutation({ mutationFn: ({ subtaskId, updates }: { subtaskId: string; updates: { title?: string; is_completed?: boolean } }) => updateSubtask(subtaskId, updates), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
   const deleteSubtaskMutation = useMutation({ mutationFn: (subtaskId: string) => deleteSubtask(subtaskId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskSubtasks(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const attachTagMutation = useMutation({ mutationFn: (tagId: string) => attachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
-  const detachTagMutation = useMutation({ mutationFn: (tagId: string) => detachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const attachTagMutation = useMutation({ mutationFn: (tagId: string) => attachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskTagMapRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
+  const detachTagMutation = useMutation({ mutationFn: (tagId: string) => detachTag(id!, tagId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) }); queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) }); queryClient.invalidateQueries({ queryKey: queryKeys.taskTagMapRoot() }); }, onError: (err) => setTaskError(getServiceErrorMessage(err)) });
 
   if (isLoading) return <div className="max-w-2xl mx-auto p-8 text-center text-neutral-400">Loading task...</div>;
   if (error || !task) return <div className="max-w-2xl mx-auto p-8 text-center"><p className="text-neutral-500 dark:text-neutral-400 mb-4">Task not found.</p><button type="button" onClick={() => navigate("/app/tasks")} className="btn-secondary">Back to Tasks</button></div>;
@@ -105,6 +105,7 @@ export function TaskDetailPage() {
     createTag(newTagInput.trim()).then(() => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tags(user?.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.taskTags(user?.id, id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taskTagMapRoot() });
       setNewTagInput("");
     }).catch((err: unknown) => setTaskError(getServiceErrorMessage(err)));
   };

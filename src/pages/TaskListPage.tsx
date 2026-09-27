@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listTasksPage, TASK_PAGE_SIZE, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
 import { getActionErrorMessage } from "@/utils/appError";
+import { getTaskTagMapChunk, mergeTagMaps, TAG_MAP_BATCH_SIZE, chunkIds } from "@/services/tagService";
 import { usePagedCollection } from "@/hooks/usePagedCollection";
 import { getShareOverview } from "@/services/shareService";
-import { getTaskTagMap } from "@/services/tagService";
 import { queryKeys } from "@/services/queryKeys";
 import { localDateStr } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
@@ -80,11 +80,41 @@ export function TaskListPage() {
 
   const taskIds = useMemo(() => allTasks.map((t) => t.id), [allTasks]);
 
-  const { data: tagMap = {} } = useQuery({
-    queryKey: queryKeys.taskTagMap(user?.id, taskIds),
-    queryFn: () => getTaskTagMap(taskIds),
-    enabled: !!user && taskIds.length > 0,
+  /*
+   * Tags are fetched per page-sized batch rather than for the whole visible set.
+   *
+   * A single query keyed by the entire accumulated id set is correct but not
+   * cheap: every "Load more" changes the key, so React Query treats it as a
+   * brand-new query and re-sends ids the user has already seen. Loading 500
+   * tasks in five clicks cost 9 requests and 1,500 ids that way.
+   *
+   * Batches are cut at the task page size, which is the granularity the list
+   * actually grows by, so appending a page adds exactly one new batch and leaves
+   * the earlier ones as cache hits — 5 requests and 500 ids for the same 500
+   * tasks. React Query runs the batch queries concurrently, and each is bounded
+   * by `TAG_MAP_BATCH_SIZE`, so the request URL stays as short as before.
+   *
+   * Tag filtering, the tag filter's option list, and every other client-side
+   * pass still read the same merged map, so nothing about the rendered result
+   * changes.
+   */
+  const tagBatches = useMemo(
+    () => chunkIds(taskIds, Math.min(TASK_PAGE_SIZE, TAG_MAP_BATCH_SIZE)),
+    [taskIds]
+  );
+
+  const tagBatchQueries = useQueries({
+    queries: tagBatches.map((batch) => ({
+      queryKey: queryKeys.taskTagMapChunk(user?.id, batch),
+      queryFn: () => getTaskTagMapChunk(batch),
+      enabled: !!user && batch.length > 0,
+    })),
   });
+
+  const tagMap = useMemo(
+    () => mergeTagMaps(tagBatchQueries.map((q) => q.data)),
+    [tagBatchQueries]
+  );
 
   const { data: overview } = useQuery({
     queryKey: queryKeys.shareOverview(user?.id),

@@ -52,32 +52,51 @@ describe("chunkIds", () => {
   });
 });
 
-describe("queryKeys.taskTagMap", () => {
+describe("queryKeys.taskTagMapChunk", () => {
   it("is stable for the same ids in a different order", () => {
-    const a = queryKeys.taskTagMap("user-1", [uuid(1), uuid(2), uuid(3)]);
-    const b = queryKeys.taskTagMap("user-1", [uuid(3), uuid(1), uuid(2)]);
+    const a = queryKeys.taskTagMapChunk("user-1", [uuid(1), uuid(2), uuid(3)]);
+    const b = queryKeys.taskTagMapChunk("user-1", [uuid(3), uuid(1), uuid(2)]);
     expect(a).toEqual(b);
   });
 
   it("produces the same key across repeated renders", () => {
     const ids = Array.from({ length: 20 }, (_, i) => uuid(i));
-    expect(queryKeys.taskTagMap("user-1", ids)).toEqual(queryKeys.taskTagMap("user-1", ids));
+    expect(queryKeys.taskTagMapChunk("user-1", ids)).toEqual(queryKeys.taskTagMapChunk("user-1", ids));
   });
 
   it("differs when the id set differs", () => {
     const base = [uuid(1), uuid(2)];
-    expect(queryKeys.taskTagMap("user-1", base)).not.toEqual(
-      queryKeys.taskTagMap("user-1", [...base, uuid(3)])
+    expect(queryKeys.taskTagMapChunk("user-1", base)).not.toEqual(
+      queryKeys.taskTagMapChunk("user-1", [...base, uuid(3)])
     );
   });
 
   it("is scoped per user so accounts cannot share a cache entry", () => {
     const ids = [uuid(1)];
-    expect(queryKeys.taskTagMap("user-1", ids)).not.toEqual(queryKeys.taskTagMap("user-2", ids));
+    expect(queryKeys.taskTagMapChunk("user-1", ids)).not.toEqual(queryKeys.taskTagMapChunk("user-2", ids));
   });
 
   it("differs by set size even when the hash could collide", () => {
     // Guards the length prefix that disambiguates same-hash, different-size sets.
-    expect(queryKeys.taskTagMap("u", [uuid(1)])).not.toEqual(queryKeys.taskTagMap("u", [uuid(1), uuid(2)]));
+    expect(queryKeys.taskTagMapChunk("u", [uuid(1)])).not.toEqual(queryKeys.taskTagMapChunk("u", [uuid(1), uuid(2)]));
+  });
+
+  it("keeps an earlier page's batch cached when a later page is appended", () => {
+    // The property this phase exists for: with a whole-set key, adding ids 3-5
+    // produced a new key and re-sent ids 1-2. With per-batch keys the first page
+    // keeps its entry and only the appended batch is new.
+    const pageOne = queryKeys.taskTagMapChunk("u", [uuid(1), uuid(2)]);
+    const pageOneLater = queryKeys.taskTagMapChunk("u", [uuid(1), uuid(2)]);
+    const pageTwo = queryKeys.taskTagMapChunk("u", [uuid(3), uuid(4)]);
+
+    expect(pageOneLater).toEqual(pageOne);
+    expect(pageTwo).not.toEqual(pageOne);
+  });
+
+  it("shares a root that a tag mutation can invalidate wholesale", () => {
+    // Both the per-batch keys live under one root, so invalidating the root
+    // clears every loaded batch rather than one of them.
+    expect(queryKeys.taskTagMapChunk("u", [uuid(1)])[0]).toEqual(queryKeys.taskTagMapRoot()[0]);
+    expect(queryKeys.taskTagMapChunk("u", [uuid(2)])[0]).toEqual(queryKeys.taskTagMapRoot()[0]);
   });
 });

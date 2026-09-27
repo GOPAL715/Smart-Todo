@@ -78,11 +78,11 @@ describe("queryKeys.taskIdSet", () => {
   it("keeps the tag-map key stable so it does not churn", () => {
     const client = new QueryClient();
     const ids = ["t1", "t2"];
-    client.setQueryData(queryKeys.taskTagMap(USER_A, ids), { t1: [] });
+    client.setQueryData(queryKeys.taskTagMapChunk(USER_A, ids), { t1: [] });
 
     // Reordering the same ids must not orphan the cache entry.
-    expect(client.getQueryData(queryKeys.taskTagMap(USER_A, ["t2", "t1"]))).toEqual({ t1: [] });
+    expect(client.getQueryData(queryKeys.taskTagMapChunk(USER_A, ["t2", "t1"]))).toEqual({ t1: [] });
     // A different user must not see it.
-    expect(client.getQueryData(queryKeys.taskTagMap(USER_B, ids))).toBeUndefined();
+    expect(client.getQueryData(queryKeys.taskTagMapChunk(USER_B, ids))).toBeUndefined();
   });
 });

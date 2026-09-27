@@ -48,8 +48,25 @@ export const queryKeys = {
     return `${sorted.length}-${(hash >>> 0).toString(36)}`;
   },
 
-  taskTagMap: (userId: string | undefined, taskIds: string[]) =>
-    ["task-tag-map", scope(userId), queryKeys.taskIdSet(taskIds)] as const,
+  /**
+   * Root for every task-tag map entry, so a tag mutation can invalidate all
+   * loaded batches at once.
+   */
+  taskTagMapRoot: () => ["task-tag-map"] as const,
+
+  /**
+   * One batch of the task-tag map, keyed by the ids that batch contains.
+   *
+   * Keying per batch rather than over the whole visible set is what makes
+   * loading another page cheap: the existing batches keep their cache entries
+   * and only the newly appended ids are fetched. Keyed by the whole set, every
+   * page load invalidated the whole entry and re-sent every id already seen.
+   *
+   * `taskIdSet` is order-independent and carries a length prefix, so the key is
+   * stable for the same ids and cannot collide across different-sized sets.
+   */
+  taskTagMapChunk: (userId: string | undefined, chunkIds: string[]) =>
+    ["task-tag-map", scope(userId), queryKeys.taskIdSet(chunkIds)] as const,
 
   taskDetail: (userId: string | undefined, taskId: string | undefined) =>
     ["tasks", scope(userId), "detail", taskId] as const,
