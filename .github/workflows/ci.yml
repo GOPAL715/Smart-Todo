@@ -1,0 +1,75 @@
+# SmartTodo CI — automated quality gate for every pull request and push to main.
+#
+# This workflow is a VALIDATION GATE ONLY. It deliberately contains no deploy,
+# release, or database-migration step: the application is deployed separately
+# (Vercel) and Supabase migrations are applied manually, so nothing here can
+# change production state.
+#
+# It runs the repository's own npm scripts unchanged. Each step fails the job on
+# a non-zero exit code, so a broken test, type error, lint violation, or failed
+# production build blocks the change.
+name: SmartTodo CI
+
+# Two triggers only:
+#   pull_request — validates a proposed change before it can be merged.
+#   push to main  — a post-merge/post-push validation gate.
+# Other events (tags, forks' internal branches) are intentionally excluded.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push supersedes an in-progress run for the same ref, so a superseded
+# build cannot report a misleading result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Test, typecheck, lint, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        # Node 20 LTS. Chosen because it satisfies every engine constraint in
+        # the dependency tree: vite ^18 || >=20, vitest ^18 || ^20 || >=22,
+        # eslint ^18.18 || ^20.9 || >=21.1, typescript >=14.17. Pinned to a
+        # major so CI resolves the latest 20.x LTS patch.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Caches the npm download cache keyed on package-lock.json. This only
+          # speeds up downloads; `npm ci` below still installs strictly the
+          # versions in the lockfile, so a stale cache cannot change results.
+          cache: npm
+
+      # `npm ci`, not `npm install`: it installs exactly what the committed
+      # package-lock.json pins, and fails outright if that lockfile is out of
+      # sync with package.json. No credentials or environment variables are
+      # needed, because the test suite is fully self-contained.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run lint
+        run: npm run lint
+
+      # Compile-only. There is intentionally no deploy step here: production
+      # delivery stays a separate, manual concern.
+      - name: Build for production
+        run: npm run build
