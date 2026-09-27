@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listTasksPage, TASK_PAGE_SIZE, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
+import { getActionErrorMessage } from "@/utils/appError";
 import { usePagedCollection } from "@/hooks/usePagedCollection";
 import { getShareOverview } from "@/services/shareService";
 import { getTaskTagMap } from "@/services/tagService";
@@ -125,29 +126,29 @@ export function TaskListPage() {
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
     onSuccess: refreshAfterMutation,
-    onError: () => {
-      setTaskError("Could not start task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not start task. Please try again."));
     },
   });
   const completeMutation = useMutation({
     mutationFn: (task: Task) => completeTask(task.id),
     onSuccess: refreshAfterMutation,
-    onError: () => {
-      setTaskError("Could not complete task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not complete task. Please try again."));
     },
   });
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
     onSuccess: refreshAfterMutation,
-    onError: () => {
-      setTaskError("Could not cancel task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not cancel task. Please try again."));
     },
   });
   const deleteMutation = useMutation({
     mutationFn: (task: Task) => deleteTask(task.id),
     onSuccess: refreshAfterMutation,
-    onError: () => {
-      setTaskError("Could not delete task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not delete task. Please try again."));
     },
   });
   const [taskError, setTaskError] = useState("");

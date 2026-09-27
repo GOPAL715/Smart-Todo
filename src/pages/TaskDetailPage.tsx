@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuthContext";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
 import { formatDate, formatTime, formatDateTime, getDurationLabel, REMINDER_LABELS, RECURRENCE_LABELS } from "@/utils/dateTime";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
+import { getActionErrorMessage } from "@/utils/appError";
 import { ArrowLeft, Play, CheckCircle2, XCircle, Edit, Trash2, Clock, Calendar, Tag as TagIcon, Flag, Bell, Repeat, Users, Plus, Check, Trash2 as TrashIcon } from "lucide-react";
 import type { TaskPriority, TaskStatus, ReminderType, Tag, Subtask, SharedWithMe } from "@/types";
 
@@ -48,10 +49,10 @@ export function TaskDetailPage() {
 
   const { data: reminders = [] } = useQuery({ queryKey: queryKeys.taskReminders(user?.id, id), queryFn: () => (id ? getTaskReminders(id) : Promise.resolve([])), enabled: !!id });
 
-  const startMutation = useMutation({ mutationFn: () => startTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not start task.") });
-  const completeMutation = useMutation({ mutationFn: () => completeTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not complete task.") });
-  const cancelMutation = useMutation({ mutationFn: () => cancelTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: () => setTaskError("Could not cancel task.") });
-  const deleteMutation = useMutation({ mutationFn: () => deleteTask(id!), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); navigate("/app/tasks"); }, onError: () => setTaskError("Could not delete task.") });
+  const startMutation = useMutation({ mutationFn: () => startTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: (e) => setTaskError(getActionErrorMessage(e, "Could not start task.")) });
+  const completeMutation = useMutation({ mutationFn: () => completeTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: (e) => setTaskError(getActionErrorMessage(e, "Could not complete task.")) });
+  const cancelMutation = useMutation({ mutationFn: () => cancelTask(id!), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }), onError: (e) => setTaskError(getActionErrorMessage(e, "Could not cancel task.")) });
+  const deleteMutation = useMutation({ mutationFn: () => deleteTask(id!), onSuccess: () => { queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }); navigate("/app/tasks"); }, onError: (e) => setTaskError(getActionErrorMessage(e, "Could not delete task.")) });
 
   const subtasksQuery = useQuery({ queryKey: queryKeys.taskSubtasks(user?.id, id), queryFn: () => (id ? getSubtasks(id) : Promise.resolve([])), enabled: !!id });
   const tagsQuery = useQuery({ queryKey: queryKeys.taskTags(user?.id, id), queryFn: () => (id ? getTaskTags(id) : Promise.resolve([])), enabled: !!id });

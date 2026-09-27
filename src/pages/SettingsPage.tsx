@@ -28,7 +28,7 @@ const THEME_OPTIONS = [
 ];
 
 export function SettingsPage() {
-  const { profile, updateProfileTimezone } = useAuth();
+  const { profile, profileError, updateProfileTimezone, refreshProfile } = useAuth();
   const { mode, setMode } = useTheme();
   const navigate = useNavigate();
 
@@ -78,6 +78,24 @@ export function SettingsPage() {
     }
   };
 
+  /*
+   * A profile read failure is reported by the auth context but was never shown,
+   * so a user whose profile could not load was simply left with whatever the
+   * screen happened to render. It is surfaced here because Settings is the one
+   * place the user can act on it: the retry re-reads the same row.
+   *
+   * `profileError` is already mapped to safe copy by `profileService`, so no
+   * further normalization is applied and no backend detail can reach this text.
+   * It is suppressed while a save is in progress or has just reported its own
+   * outcome, so the same failure is never shown twice.
+   */
+  const showProfileError =
+    profileError && !saving && status === null ? profileError : "";
+
+  const handleRetryProfile = async () => {
+    await refreshProfile();
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <button type="button" onClick={() => navigate(-1)} className="btn-ghost mb-4 text-sm">
@@ -89,6 +107,22 @@ export function SettingsPage() {
       <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6">
         Manage your display preferences and timezone.
       </p>
+
+      {showProfileError && (
+        <div
+          role="alert"
+          className="mb-6 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 flex items-center justify-between gap-3"
+        >
+          <span>Unable to load your settings. {showProfileError}</span>
+          <button
+            type="button"
+            onClick={() => void handleRetryProfile()}
+            className="text-sm font-medium underline shrink-0"
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {/* Appearance */}
       <div className="card p-6 space-y-4 mb-6">

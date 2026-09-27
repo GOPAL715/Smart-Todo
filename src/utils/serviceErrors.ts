@@ -94,6 +94,33 @@ export function getServiceErrorMessage(err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+/**
+ * Classifies a service failure without changing any user-facing copy.
+ *
+ * Added so `appError` can label an error without keeping a second copy of the
+ * SQLSTATE and network code lists above — this module already owns that
+ * knowledge, and duplicating it is exactly how the two lists drift apart.
+ *
+ * Deliberately returns only the distinctions the UI acts on. `getServiceErrorMessage`
+ * is untouched and remains the only source of the words the user reads.
+ */
+export type ServiceFailureKind = "permission" | "network" | "other";
+
+export function classifyServiceFailure(err: unknown): ServiceFailureKind {
+  const structured = readStructuredError(err);
+
+  if (structured) {
+    const code = structured.code?.toUpperCase();
+    if (code && AUTHORIZATION_CODES.has(code)) return "permission";
+    if (code && NETWORK_CODES.has(code)) return "network";
+    if (isNetworkError(structured.message ?? "")) return "network";
+  }
+
+  if (err instanceof Error && isNetworkError(err.message)) return "network";
+
+  return "other";
+}
+
 export function throwServiceError(err: unknown): never {
   throw new Error(getServiceErrorMessage(err));
 }

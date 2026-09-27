@@ -327,7 +327,7 @@ export function AppLayout() {
                       <div role="alert" className="p-6 text-center">
                         <AlertTriangle size={24} className="mx-auto mb-2 text-error-500" />
                         <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
-                          {notifError ?? getServiceErrorMessage(null)}
+                          {notifError}
                         </p>
                         <button
                           type="button"

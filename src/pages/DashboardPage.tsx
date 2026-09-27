@@ -17,6 +17,7 @@ import { getGreeting, localDateStr } from "@/utils/dateTime";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Clock, AlertTriangle, ListTodo, TrendingUp, Plus, Users, Flag, RotateCw } from "lucide-react";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
+import { getActionErrorMessage } from "@/utils/appError";
 import type { Task, SharedWithMe } from "@/types";
 
 const RANGE_OPTIONS: { key: AnalyticsRange; label: string }[] = [
@@ -108,8 +109,8 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
-    onError: () => {
-      setTaskError("Could not start task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not start task. Please try again."));
     },
   });
 
@@ -118,8 +119,8 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
-    onError: () => {
-      setTaskError("Could not complete task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not complete task. Please try again."));
     },
   });
 
@@ -128,8 +129,8 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
     },
-    onError: () => {
-      setTaskError("Could not cancel task. Please try again.");
+    onError: (error) => {
+      setTaskError(getActionErrorMessage(error, "Could not cancel task. Please try again."));
     },
   });
 
