@@ -1,0 +1,93 @@
+# SmartTodo production health monitor
+#
+# Runs the existing, read-only `supabase/ops/health_check.sql` against production
+# on a schedule and turns its PASS / WARN / FAIL rows into a non-zero exit status,
+# so an unhealthy production database produces a failed workflow run and a GitHub
+# notification.
+#
+# WHAT THIS IS NOT
+#   * It is read-only. It runs the same SQL an operator runs by hand; it changes
+#     no application data, dispatches nothing, and reschedules nothing.
+#   * It is deliberately separate from `ci.yml`. That workflow is the change
+#     validation gate for pull requests; this one watches production. Coupling
+#     them would mean a commit could fail because production was already sick.
+#   * It is NOT a deployment pipeline. Nothing here migrates, deploys, or mutates.
+#
+# OPERATIONAL PREREQUISITE (required — the job fails fast without it)
+#   A repository secret named `DATABASE_URL` holding the **Supabase pooler**
+#   connection string (port 5432, `aws-0-<region>.pooler.supabase.com`, user
+#   `postgres.<project-ref>`) with the database password.
+#
+#   Settings -> Secrets and variables -> Actions -> New repository secret.
+#
+#   The pooler connection is the right one to use: it goes through the Supavisor
+#   proxy, so it works from a hosted runner without a static IP allow-list. The
+#   direct connection (port 5432 on `db.<ref>.supabase.co`) is IP-restricted and
+#   will be refused from a GitHub runner.
+#
+#   The secret is read into the step environment and never printed. The health
+#   check itself reports only aggregate state, and the gate additionally redacts
+#   anything credential-shaped before writing to the log.
+name: SmartTodo Production Health
+
+on:
+  # Every 15 minutes. GitHub schedules the *workflow*, not each tick, so this is
+  # the alerting cadence, not the check cadence.
+  schedule:
+    - cron: "*/15 * * * *"
+  # Lets an operator verify the check on demand, e.g. right after a deploy.
+  workflow_dispatch:
+
+# Least privilege: a health check only needs to read the repository.
+permissions:
+  contents: read
+
+# A slow run must not pile up behind itself; the newest state is what matters.
+concurrency:
+  group: production-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    name: Production health
+    # ubuntu-latest ships `psql`, so no client install step is needed.
+    runs-on: ubuntu-latest
+    # A hung connection must not sit open; the check is a single round trip.
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run production health check
+        env:
+          # Never echoed: the connection string carries the database password.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::The DATABASE_URL repository secret is not configured."
+            echo "Add the Supabase pooler connection string under"
+            echo "Settings -> Secrets and variables -> Actions. See"
+            echo "supabase/ops/RUNBOOK.md for the exact steps."
+            exit 1
+          fi
+
+          # -t tuples only, -A unaligned, -F '|' fixed separator: the shape the
+          # gate parses. ON_ERROR_STOP makes a connection or SQL error a non-zero
+          # exit rather than a silently empty result.
+          if ! output=$(psql "$DATABASE_URL" \
+            -X -v ON_ERROR_STOP=1 -t -A -F '|' \
+            -f supabase/ops/health_check.sql 2>&1); then
+            echo "The health check could not be executed:"
+            echo "$output"
+            # Non-zero either way, but through the gate, so the summary format
+            # and the fail-closed rule are identical for every failure mode.
+            node supabase/ops/health_check_gate.mjs "$output" || exit 1
+            exit 1
+          fi
+
+          # A successful psql exit can still mean "no rows", e.g. if the check
+          # was edited badly. The gate fails closed on that.
+          node supabase/ops/health_check_gate.mjs "$output"

@@ -60,6 +60,129 @@ It returns one row per check with `PASS` / `WARN` / `FAIL`:
 The script exposes **no secrets and no user data**: the scheduler token is only
 ever reported as present/absent, and task/notification data only as counts.
 
+---
+
+## 2a. Automated health monitoring
+
+> **Status: implemented, not yet armed.** The workflow is committed, but it
+> stays red until the `DATABASE_URL` secret below is added. Until then,
+> alerting is still manual.
+
+### What runs
+
+A scheduled GitHub Actions workflow, `SmartTodo Production Health`
+(`.github/workflows/health-monitor.yml`), runs the same
+`supabase/ops/health_check.sql` above against production every **15 minutes**
+and converts its rows into a pass/fail exit code. It is read-only: it changes no
+data, dispatches nothing, and reschedules nothing.
+
+The workflow is deliberately separate from `SmartTodo CI`. That one validates
+changes on pull requests; this one watches production. Merging them would mean
+a commit could fail because production was already unhealthy.
+
+### What counts as a failure
+
+`supabase/ops/health_check_gate.mjs` applies one rule: **only `FAIL` fails the
+gate.**
+
+| Gate outcome | Meaning |
+|---|---|
+| `PASS` | every check healthy (warnings may still be listed) |
+| `FAIL` | at least one check is `FAIL`, **or** no results could be parsed |
+
+Two deliberate choices:
+
+- **`WARN` does not fail.** The scheduler fires every minute, so a run that is
+  2–5 minutes old is ordinary jitter, not an outage. Failing on it would train
+  everyone to ignore the alert. Warnings are still printed.
+- **Unparseable output fails.** If the SQL errors, or is edited into a shape
+  that returns nothing, the gate reports `FAIL` rather than passing. A check
+  that goes quiet because it broke must never look identical to a healthy one.
+
+### Where the alert goes
+
+The GitHub Actions notification for a failed run — email to repository watchers
+by default, plus the run's log. No external monitoring vendor is configured, and
+none is added: GitHub is the platform already in use.
+
+To get SMS as well, enable **Settings -> Notifications -> SMS** on the account
+and add `alert: failure` to the job. No repository code changes.
+
+### Required configuration (the one manual step)
+
+Add a repository secret named **`DATABASE_URL`**:
+
+**Settings -> Secrets and variables -> Actions -> New repository secret.**
+
+Its value is the **Supabase pooler** connection string:
+
+```
+postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+Find it in **Supabase Dashboard -> Connect**. Use the **pooler** connection
+(port `5432`, `aws-0-…pooler.supabase.com`), not the direct one: it goes through
+the Supavisor proxy and therefore works from a hosted runner. The direct address
+(`db.<ref>.supabase.co`) is IP-restricted and will be refused from GitHub.
+
+Until this secret exists the workflow fails immediately with a clear
+`::error::` naming it, rather than silently skipping. That failure is expected,
+not a bug, until the secret is added.
+
+To confirm it is armed afterwards, run it by hand:
+**Actions -> SmartTodo Production Health -> Run workflow.**
+
+### Verifying it locally
+
+No database is needed to test the gate itself:
+
+```bash
+# healthy input -> exit 0
+node supabase/ops/health_check_gate.mjs "db|PASS|connected
+recent_runs|PASS|1 run(s)"
+
+# a failing check -> exit 1
+node supabase/ops/health_check_gate.mjs "recent_runs|FAIL|no run in the last 5 minutes"
+
+# unparseable input -> exit 1 (fails closed)
+node supabase/ops/health_check_gate.mjs "psql: error: connection failed"
+```
+
+Against a real database, exactly as CI runs it:
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -t -A -F '|' \
+  -f supabase/ops/health_check.sql | \
+  node supabase/ops/health_check_gate.mjs "$(cat)"
+```
+
+### Investigating a failure
+
+1. Open the failed run's log — the summary names each failing check.
+2. Work that check using the spot checks below and section 4 (recovery).
+3. Transient versus persistent: a single failure with a healthy
+   `recent_runs` a few minutes later was a blip. If `recent_runs` is still
+   `FAIL`, the scheduler is genuinely stopped — go to section 4.1.
+
+### Rotating or revoking the credential
+
+The credential is the **database password** for the `postgres.<project-ref>`
+role.
+
+- **Rotate:** change the password in Supabase (**Project Settings -> Database ->
+  Reset database password**), update the `DATABASE_URL` secret, then re-run the
+  workflow manually. Nothing reads the old value, so there is no ordering
+  requirement beyond doing both.
+- **Revoke:** remove the `DATABASE_URL` secret. The workflow then fails fast
+  with a configuration error and no longer reaches production at all.
+
+The secret is written only to the step environment. It is never echoed, and
+`health_check_gate.mjs` additionally redacts anything credential-shaped from a
+check's detail before it is printed, so a future change to the SQL cannot leak a
+credential into a retained CI log.
+
+---
+
 ### Individual spot checks
 
 ```sql
