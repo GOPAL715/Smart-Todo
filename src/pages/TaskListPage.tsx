@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listTasks, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
+import { listTasksPage, TASK_PAGE_SIZE, startTask, completeTask, cancelTask, deleteTask } from "@/services/taskService";
+import { usePagedCollection } from "@/hooks/usePagedCollection";
 import { getShareOverview } from "@/services/shareService";
 import { getTaskTagMap } from "@/services/tagService";
 import { queryKeys } from "@/services/queryKeys";
@@ -52,7 +53,29 @@ export function TaskListPage() {
     [userTimezone]
   );
 
-  const { data: allTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "all"), queryFn: () => listTasks(), enabled: !!user });
+  /*
+   * The task list is a client-side working set: every tab, filter, search, sort
+   * mode and the smart ranking are applied to the accumulated rows in memory
+   * (see `filteredTasks` below). This collects that set a page at a time
+   * instead of silently stopping at a hard 500-row cap, and `allTasks` is the
+   * flattened result. The filtering, search, sort and `rankTasks` calls
+   * themselves are completely unchanged.
+   */
+  const taskPages = usePagedCollection<Task>({
+    fetchPage: useCallback(
+      (offset, limit) => listTasksPage({ offset, limit }),
+      []
+    ),
+    pageSize: TASK_PAGE_SIZE,
+  });
+  const allTasks = taskPages.rows;
+
+  useEffect(() => {
+    void taskPages.loadFirstPage();
+    // The list has exactly one shape (no server-side filter), so it loads once
+    // per mount; later pages come from Load more.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const taskIds = useMemo(() => allTasks.map((t) => t.id), [allTasks]);
 
@@ -84,30 +107,45 @@ export function TaskListPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [tagMap]);
 
+  /*
+   * Refreshing after a mutation.
+   *
+   * The rows this page renders now live in local paged state rather than under
+   * the `["tasks", ...]` query key, so invalidating that key alone no longer
+   * updates this screen — it would refresh the dashboard and detail views but
+   * leave a completed or deleted task still listed here. The first page is
+   * therefore reloaded explicitly alongside the existing invalidation, which is
+   * still needed for every other consumer.
+   */
+  const refreshAfterMutation = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() });
+    void taskPages.loadFirstPage();
+  }, [queryClient, taskPages]);
+
   const startMutation = useMutation({
     mutationFn: (task: Task) => startTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onSuccess: refreshAfterMutation,
     onError: () => {
       setTaskError("Could not start task. Please try again.");
     },
   });
   const completeMutation = useMutation({
     mutationFn: (task: Task) => completeTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onSuccess: refreshAfterMutation,
     onError: () => {
       setTaskError("Could not complete task. Please try again.");
     },
   });
   const cancelMutation = useMutation({
     mutationFn: (task: Task) => cancelTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onSuccess: refreshAfterMutation,
     onError: () => {
       setTaskError("Could not cancel task. Please try again.");
     },
   });
   const deleteMutation = useMutation({
     mutationFn: (task: Task) => deleteTask(task.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.taskRoot() }),
+    onSuccess: refreshAfterMutation,
     onError: () => {
       setTaskError("Could not delete task. Please try again.");
     },
@@ -365,6 +403,51 @@ export function TaskListPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/*
+        Pagination.
+
+        The count is the exact total for the account's whole task list, counted in
+        Postgres, while the filters and search above still run over only the rows
+        loaded so far. The wording therefore says "tasks", not "results", and
+        avoids implying a filtered count is complete when further pages are
+        still available. When everything is loaded, the two coincide and the
+        sentence simplifies to the plain total.
+      */}
+      {allTasks.length > 0 && taskPages.total !== null && (
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center">
+          {taskPages.hasMore
+            ? `Showing ${allTasks.length.toLocaleString()} of ${taskPages.total.toLocaleString()} tasks`
+            : `${allTasks.length.toLocaleString()} task${allTasks.length === 1 ? "" : "s"}`}
+        </p>
+      )}
+
+      {taskPages.error && (
+        <div
+          role="alert"
+          className="rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 flex items-center justify-between gap-3"
+        >
+          <span>{taskPages.error}</span>
+          <button
+            type="button"
+            onClick={() => void taskPages.loadMore()}
+            className="text-sm font-medium underline shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {taskPages.hasMore && (
+        <button
+          type="button"
+          onClick={() => void taskPages.loadMore()}
+          disabled={taskPages.isLoadingMore}
+          className="btn-secondary w-full disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {taskPages.isLoadingMore ? "Loading..." : "Load more"}
+        </button>
       )}
     </div>
   );

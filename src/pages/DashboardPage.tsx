@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
-import { getTodayTasks, getUpcomingTasks, getOverdueTasks, listTasks, getAnalyticsTasks, getLifetimeTaskStats, startTask, completeTask, cancelTask } from "@/services/taskService";
+import { getTodayTasks, getUpcomingTasks, getOverdueTasksPage, listTasks, getAnalyticsTasks, getLifetimeTaskStats, startTask, completeTask, cancelTask } from "@/services/taskService";
 import { getShareOverview } from "@/services/shareService";
 import { queryKeys } from "@/services/queryKeys";
 import { TaskCard } from "@/components/ui/TaskCard";
@@ -33,7 +33,23 @@ export function DashboardPage() {
 
   const { data: todayTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "today"), queryFn: () => getTodayTasks(userTimezone), enabled: !!user });
   const { data: upcomingTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "upcoming"), queryFn: getUpcomingTasks, enabled: !!user });
-  const { data: overdueTasks = [] } = useQuery({ queryKey: queryKeys.taskList(user?.id, "overdue"), queryFn: getOverdueTasks, enabled: !!user });
+  /*
+   * The first N overdue tasks plus the exact overdue total.
+   *
+   * Previously this fetched a flat 100 rows and reported nothing about the rest,
+   * so a user with more overdue tasks than that saw a panel that looked
+   * complete. The count arrives on the same request, so this is still one query
+   * and the rows and their order are unchanged.
+   */
+  const {
+    data: overduePage = { rows: [] as Task[], total: 0 },
+  } = useQuery({
+    queryKey: queryKeys.taskList(user?.id, "overdue"),
+    queryFn: () => getOverdueTasksPage(),
+    enabled: !!user,
+  });
+  const overdueTasks = overduePage.rows;
+  const overdueTotal = overduePage.total;
 
   /*
    * Lifetime stat cards must be exact, so they are counted in Postgres via
@@ -414,6 +430,21 @@ export function DashboardPage() {
               />
             ))}
           </div>
+          {/*
+            This panel deliberately shows only the most overdue tasks, but it must
+            not imply those are all of them. The total is the exact overdue count
+            from Postgres, so a user with more overdue work than fits is told so
+            and can open the task list's Overdue tab, which is untruncated.
+          */}
+          {overdueTotal !== null && overdueTotal > overdueTasks.length && (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-3">
+              Showing the {overdueTasks.length.toLocaleString()} most overdue of{" "}
+              {overdueTotal.toLocaleString()}.{" "}
+              <Link to="/app/tasks" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
+                See all overdue tasks
+              </Link>
+            </p>
+          )}
         </section>
       )}
 

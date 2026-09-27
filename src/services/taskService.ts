@@ -5,6 +5,7 @@ import { REMINDER_OFFSETS } from "@/utils/dateTime";
 import { DEFAULT_TIMEZONE, toUtcIso, localDateStr, calendarDateKey } from "@/utils/dateTime";
 import { attachTag, getTaskTags } from "@/services/tagService";
 import { getSubtasks } from "@/services/subtaskService";
+import { normalizePageSize, REQUIRED_TIEBREAKER, type Page } from "@/services/pagination";
 import type { TaskStats } from "@/utils/dashboardAnalytics";
 export interface CreateTaskInput {
   title: string;
@@ -496,16 +497,30 @@ export async function getAnalyticsTasks(
 }
 
 /**
- * Upper bound for the UI task list.
+ * Rows fetched per page of the task list.
  *
- * SCOPE: this bounds what the task *list* renders. It must never be used to
- * derive lifetime aggregates — see `getLifetimeTaskStats`, which counts in
- * Postgres and is unaffected by this cap.
+ * This replaces the former `TASK_LIST_LIMIT` of 500, which was a hard ceiling:
+ * an account with more tasks simply had no way to see the rest, because the
+ * service returned what fitted and nothing reported that anything was missing.
+ * The same protection against transferring an entire history is retained — one
+ * page is still bounded — but the remainder is now reachable through "Load
+ * more" and the exact total is displayed, so the bound is visible rather than
+ * silent.
+ *
+ * SCOPE: this bounds one page of the UI task list. Lifetime aggregates are
+ * unaffected — see `getLifetimeTaskStats`, which counts in Postgres.
  */
-export const TASK_LIST_LIMIT = 500;
+export const TASK_PAGE_SIZE = 100;
 
-/** Upper bound for the overdue list rendered on the dashboard. */
-export const OVERDUE_LIST_LIMIT = 100;
+/**
+ * Rows fetched for the dashboard's overdue section.
+ *
+ * The dashboard renders a fixed-height overdue panel, so showing the first N is
+ * an intentional presentation choice, not a truncation defect. It was previously
+ * invisible, though: the dashboard now also shows the exact overdue total, so a
+ * user with more overdue tasks than fit is told so.
+ */
+export const OVERDUE_DISPLAY_LIMIT = 100;
 
 /**
  * Exact lifetime task counts for the signed-in user.
@@ -553,16 +568,55 @@ export async function listTasks(filters?: {
   priority?: TaskPriority;
   category?: string;
 }): Promise<Task[]> {
-  let query = supabase.from("tasks").select("*").order("start_datetime", { ascending: true });
+  const firstPage = await listTasksPage({ filters, offset: 0, limit: TASK_PAGE_SIZE });
+  return firstPage.rows;
+}
+
+/**
+ * One page of the task list, plus the exact total for the whole list.
+ *
+ * The previous implementation applied `.limit(TASK_LIST_LIMIT)` and returned
+ * only the rows it got, so an account with more tasks than the cap saw a list
+ * that ended at row 500 with no indication that rows 501+ existed. The cap was
+ * a genuine protection against a full-history transfer, but it was silent, which
+ * is what this replaces: the total is now counted in Postgres and surfaced, and
+ * the caller can load further pages on demand.
+ *
+ * Filtering by status/priority/category is applied in the database, exactly as
+ * before, so a paged query never mixes those constraints with a client-side
+ * pass. Everything else — the tab filter, search, tag and category filtering,
+ * the sort modes, and the Phase 13B smart ranking — remains client-side over the
+ * accumulated rows, because moving that into SQL would change what "smart"
+ * means and is explicitly out of scope here.
+ *
+ * `count: "exact"` is the same capability already used by `getLifetimeTaskStats`
+ * and `getUnreadCount`, so the total is exact and transfers no extra rows.
+ */
+export async function listTasksPage(options?: {
+  filters?: { status?: TaskStatus; priority?: TaskPriority; category?: string };
+  offset?: number;
+  limit?: number;
+}): Promise<Page<Task>> {
+  const limit = normalizePageSize(options?.limit, TASK_PAGE_SIZE);
+  const offset = Math.max(0, options?.offset ?? 0);
+
+  let query = supabase
+    .from("tasks")
+    .select("*", { count: "exact" })
+    .order("start_datetime", { ascending: true })
+    // Total order: start_datetime is not unique, so without this the boundary
+    // between two pages is arbitrary and rows can be duplicated or skipped.
+    .order(REQUIRED_TIEBREAKER, { ascending: true });
+
+  const filters = options?.filters;
   if (filters?.status) query = query.eq("status", filters.status);
   if (filters?.priority) query = query.eq("priority", filters.priority);
   if (filters?.category) query = query.eq("category", filters.category);
 
-  // Bounded: the previous query was fully unbounded, so a large account
-  // transferred its entire history on every dashboard and list load.
-  const { data, error } = await query.limit(TASK_LIST_LIMIT);
+  const { data, error, count } = await query.range(offset, offset + limit - 1);
   if (error) throw new Error(getServiceErrorMessage(error));
-  return (data ?? []).map(mapRow);
+
+  return { rows: (data ?? []).map(mapRow), total: count ?? 0 };
 }
 
 export async function getTodayTasks(timezone: string = DEFAULT_TIMEZONE): Promise<Task[]> {
@@ -575,6 +629,24 @@ export async function getTodayTasks(timezone: string = DEFAULT_TIMEZONE): Promis
   return (data ?? []).map(mapRow);
 }
 
+/**
+ * How many upcoming rows to fetch for the dashboard preview.
+ *
+ * This is an intentional presentation limit, **not** a truncation defect, and is
+ * deliberately left as a plain `.limit()` rather than paginated. The dashboard
+ * renders a fixed-size "Upcoming Tasks" preview and then slices it again
+ * (`upcomingTasks.slice(0, 6)`), so the 20 rows are a small buffer for that
+ * panel — there is no list on this screen for a user to "load more" into, and
+ * the complete set of upcoming tasks is already reachable, untruncated, through
+ * the task list's own "Upcoming" tab.
+ *
+ * Unlike the task list and the notification panel, this screen is not a
+ * complete-dataset view, so a count would be information without a purpose. The
+ * `id` tiebreaker is still added, so the preview is deterministic rather than
+ * arbitrary when two tasks share a start time.
+ */
+export const UPCOMING_PREVIEW_LIMIT = 20;
+
 export async function getUpcomingTasks(): Promise<Task[]> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -584,20 +656,50 @@ export async function getUpcomingTasks(): Promise<Task[]> {
     .neq("status", "CANCELLED")
     .neq("status", "COMPLETED")
     .order("start_datetime", { ascending: true })
-    .limit(20);
+    .order(REQUIRED_TIEBREAKER, { ascending: true })
+    .limit(UPCOMING_PREVIEW_LIMIT);
   if (error) throw new Error(getServiceErrorMessage(error));
   return (data ?? []).map(mapRow);
 }
 
 export async function getOverdueTasks(): Promise<Task[]> {
-  const { data, error } = await supabase
+  const firstPage = await getOverdueTasksPage();
+  return firstPage.rows;
+}
+
+/**
+ * The first `OVERDUE_DISPLAY_LIMIT` overdue tasks, plus the exact overdue total.
+ *
+ * The dashboard renders a fixed-size "Overdue" section, so the first-N
+ * presentation is intentional and retained. What was missing was any signal that
+ * more existed: with the old `.limit(OVERDUE_LIST_LIMIT)` a user with 140
+ * overdue tasks saw 100 and no indication of the other 40, which read as "all
+ * of them". The exact count now comes from the same `count: "exact"` the total
+ * uses, so no extra round trip and no change to the rows that are shown.
+ *
+ * "Overdue" still means `status = 'OVERDUE'` — that value is maintained by the
+ * existing status-transition trigger — and the `end_datetime` ordering and its
+ * ascending direction are unchanged, so the same tasks appear in the same
+ * order. The date handling is untouched: no timezone conversion happens here.
+ */
+export async function getOverdueTasksPage(options?: {
+  limit?: number;
+}): Promise<Page<Task>> {
+  const limit = normalizePageSize(options?.limit, OVERDUE_DISPLAY_LIMIT);
+
+  const { data, error, count } = await supabase
     .from("tasks")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("status", "OVERDUE")
     .order("end_datetime", { ascending: true })
-    .limit(OVERDUE_LIST_LIMIT);
+    // Same reasoning as the task list: end_datetime is not unique, so the id
+    // tiebreaker is what makes the first-N selection stable.
+    .order(REQUIRED_TIEBREAKER, { ascending: true })
+    .limit(limit);
+
   if (error) throw new Error(getServiceErrorMessage(error));
-  return (data ?? []).map(mapRow);
+
+  return { rows: (data ?? []).map(mapRow), total: count ?? 0 };
 }
 
 function localToday(timezone: string): string {

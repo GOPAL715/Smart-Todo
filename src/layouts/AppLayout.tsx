@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, LayoutDashboard, ListTodo, Calendar, LogOut, Plus, CheckCheck, X, Clock, Settings, WifiOff, Menu, AlertTriangle, RotateCw } from "lucide-react";
-import { listNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from "@/services/notificationService";
+import { listNotificationsPage, getUnreadCount, NOTIFICATION_PAGE_SIZE, markAsRead, markAllAsRead, deleteNotification } from "@/services/notificationService";
+import { usePagedCollection } from "@/hooks/usePagedCollection";
 import { queryKeys } from "@/services/queryKeys";
-import { useState } from "react";
 import type { Notification } from "@/types";
 import { formatDateTime } from "@/utils/dateTime";
 import { useUserTimezone } from "@/hooks/useUserTimezone";
@@ -37,44 +37,76 @@ export function AppLayout() {
     enabled: !!user,
   });
 
-  const {
-    data: notifications = [],
-    isLoading: notifLoading,
-    isError: notifError,
-    error: notifLoadError,
-    refetch: refetchNotifications,
-  } = useQuery({
-    queryKey: queryKeys.notificationList(user?.id),
-    queryFn: listNotifications,
-    enabled: notifOpen && !!user,
+  /*
+   * Notifications are collected a page at a time.
+   *
+   * This previously fetched a flat 100 rows newest-first, so a user with more
+   * than 100 notifications simply never saw the rest. The rows and their order
+   * are unchanged; only the reachability of the remainder is new.
+   *
+   * Note the unread badge is deliberately a *separate* exact query
+   * (`getUnreadCount` below), so it stays correct no matter how many pages are
+   * loaded, and marking a notification read cannot be skewed by which page it
+   * happens to sit on.
+   */
+  const notificationPages = usePagedCollection<Notification>({
+    fetchPage: useCallback(
+      (offset, limit) => listNotificationsPage({ offset, limit }),
+      []
+    ),
+    pageSize: NOTIFICATION_PAGE_SIZE,
+    onError: getServiceErrorMessage,
   });
+  const notifications = notificationPages.rows;
+
+  const isNotifLoading = notificationPages.isLoading;
+  const notifError = notificationPages.error;
+  const refetchNotifications = notificationPages.loadFirstPage;
+
+  /* Loaded on open only, as before: the panel is closed by default. */
+  useEffect(() => {
+    if (notifOpen && notifications.length === 0 && !isNotifLoading && !notifError) {
+      void notificationPages.loadFirstPage();
+    }
+    // Re-running on every dependency would refetch on each open, which is the
+    // behaviour this replaced; the panel loads once per open when empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifOpen]);
+
+  /*
+   * Refreshing after a notification mutation.
+   *
+   * The panel's rows now live in local paged state instead of under the
+   * `["notifications", ...]` query key, so invalidating that key alone would
+   * refresh the unread badge (which is still a real query) but leave a
+   * just-marked-read or just-deleted row on screen. Reloading the first page
+   * keeps the panel consistent with the badge.
+   */
+  const refreshNotifications = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
+    void notificationPages.loadFirstPage();
+  }, [queryClient, notificationPages]);
 
   const markReadMutation = useMutation({
     mutationFn: markAsRead,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
-    },
+    onSuccess: refreshNotifications,
   });
 
   const markAllReadMutation = useMutation({
     mutationFn: markAllAsRead,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
-    },
+    onSuccess: refreshNotifications,
   });
 
   const deleteNotifMutation = useMutation({
     mutationFn: deleteNotification,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.notificationRoot() });
-    },
+    onSuccess: refreshNotifications,
   });
 
   /* Single source of truth for what the panel shows, so "loading" and "error"
      can never collapse into the "no notifications" empty state. */
   const notifState = getNotificationPanelState({
-    isLoading: notifLoading,
-    isError: notifError,
+    isLoading: isNotifLoading,
+    isError: notifError !== null,
     count: notifications.length,
   });
 
@@ -259,7 +291,7 @@ export function AppLayout() {
                       <div role="alert" className="p-6 text-center">
                         <AlertTriangle size={24} className="mx-auto mb-2 text-error-500" />
                         <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
-                          {getServiceErrorMessage(notifLoadError)}
+                          {notifError ?? getServiceErrorMessage(null)}
                         </p>
                         <button
                           type="button"
@@ -322,6 +354,35 @@ export function AppLayout() {
                           </li>
                         ))}
                       </ul>
+                    )}
+
+                    {/*
+                      Reaches the notifications the old flat 100-row fetch could
+                      never show. Appending a page never re-renders or drops the
+                      rows already listed, and the unread count above is a
+                      separate exact query, so neither is affected by what is
+                      loaded here.
+                    */}
+                    {notifState === "ready" && notificationPages.hasMore && (
+                      <div className="p-3 border-t border-neutral-100 dark:border-neutral-800">
+                        <p className="text-xs text-neutral-400 text-center mb-2">
+                          Showing {notifications.length.toLocaleString()} of{" "}
+                          {notificationPages.total?.toLocaleString()}
+                        </p>
+                        {notificationPages.error && (
+                          <p role="alert" className="text-xs text-error-600 dark:text-error-400 text-center mb-2">
+                            {notificationPages.error}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void notificationPages.loadMore()}
+                          disabled={notificationPages.isLoadingMore}
+                          className="btn-secondary w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {notificationPages.isLoadingMore ? "Loading..." : "Load more"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

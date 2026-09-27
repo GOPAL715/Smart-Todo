@@ -14,7 +14,7 @@ import {
   type AnalyticsTask,
 } from "./dashboardAnalytics";
 import { queryKeys } from "@/services/queryKeys";
-import { TASK_LIST_LIMIT } from "@/services/taskService";
+import { TASK_PAGE_SIZE } from "@/services/taskService";
 
 const task = (over: Partial<AnalyticsTask> = {}): AnalyticsTask => ({
   task_date: "2026-09-26",
@@ -211,32 +211,33 @@ describe("computeRangeAnalytics", () => {
     expect(isWithinDateRange("2026-12-26", "2026-12-27", "2027-01-02")).toBe(false);
   });
 });
-describe("lifetime statistics are never truncated by the UI list cap", () => {
+describe("lifetime statistics are never truncated by the UI list page", () => {
   /*
    * Regression guard for the defect this replaced: the dashboard derived its
-   * lifetime stat cards from `listTasks()`, which is capped by TASK_LIST_LIMIT.
-   * For an account with more tasks than the cap, the cards silently reported the
-   * cap instead of the true lifetime totals.
+   * lifetime stat cards from the task list query. For an account with more
+   * tasks than one page, the cards silently reported the page instead of the
+   * true lifetime totals.
    *
-   * Lifetime counts are now produced by Postgres via `count: "exact",
-   * head: true`, so they are independent of TASK_LIST_LIMIT. The assertions
-   * below pin that: a dataset larger than the cap must not yield cap-sized
-   * numbers.
+   * Lifetime counts are produced by Postgres via `count: "exact", head: true`,
+   * so they are independent of how many rows the UI happens to have loaded. The
+   * assertions below pin that: a dataset larger than one page must not yield
+   * page-sized numbers. Referencing `TASK_PAGE_SIZE` rather than a literal keeps
+   * that true if the page size ever changes.
    */
 
-  it("counts far more than TASK_LIST_LIMIT tasks without truncating", () => {
-    const many = Array.from({ length: TASK_LIST_LIMIT * 3 }, (_, i) => ({
+  it("counts far more than one page of tasks without truncating", () => {
+    const many = Array.from({ length: TASK_PAGE_SIZE * 3 }, (_, i) => ({
       status: "PENDING",
       priority: "LOW",
       id: i,
     }));
     const result = computeTaskStats(many);
-    expect(result.total).toBe(TASK_LIST_LIMIT * 3);
-    expect(result.total).toBeGreaterThan(TASK_LIST_LIMIT);
+    expect(result.total).toBe(TASK_PAGE_SIZE * 3);
+    expect(result.total).toBeGreaterThan(TASK_PAGE_SIZE);
   });
 
-  it("keeps per-status and per-priority counts exact beyond the cap", () => {
-    const size = TASK_LIST_LIMIT * 2;
+  it("keeps per-status and per-priority counts exact beyond one page", () => {
+    const size = TASK_PAGE_SIZE * 2;
     const many = Array.from({ length: size }, (_, i) => ({
       // A deterministic spread so each bucket is non-empty and known.
       status: ["COMPLETED", "PENDING", "IN_PROGRESS", "OVERDUE", "CANCELLED"][i % 5],
@@ -245,7 +246,7 @@ describe("lifetime statistics are never truncated by the UI list cap", () => {
     const result = computeTaskStats(many);
 
     expect(result.total).toBe(size);
-    expect(result.total).not.toBe(TASK_LIST_LIMIT);
+    expect(result.total).not.toBe(TASK_PAGE_SIZE);
     // Each of the 5 statuses covers exactly size/5 rows.
     expect(result.completed).toBe(size / 5);
     expect(result.pending).toBe(size / 5);
@@ -256,19 +257,19 @@ describe("lifetime statistics are never truncated by the UI list cap", () => {
     expect(result.high).toBe(size / 4);
   });
 
-  it("does not confuse a dataset at exactly the cap with a larger one", () => {
-    // Guards the specific off-by-boundary case: at exactly 500 the cap is
-    // indistinguishable from the truth, so the risk is at 501 and above.
-    const atCap = Array.from({ length: TASK_LIST_LIMIT }, () => ({
+  it("does not confuse a dataset at exactly one page with a larger one", () => {
+    // Guards the specific off-by-boundary case: at exactly one page the two are
+    // indistinguishable, so the risk is one row beyond it.
+    const atCap = Array.from({ length: TASK_PAGE_SIZE }, () => ({
       status: "PENDING",
       priority: "LOW",
     }));
-    const overCap = Array.from({ length: TASK_LIST_LIMIT + 1 }, () => ({
+    const overCap = Array.from({ length: TASK_PAGE_SIZE + 1 }, () => ({
       status: "PENDING",
       priority: "LOW",
     }));
-    expect(computeTaskStats(atCap).total).toBe(TASK_LIST_LIMIT);
-    expect(computeTaskStats(overCap).total).toBe(TASK_LIST_LIMIT + 1);
+    expect(computeTaskStats(atCap).total).toBe(TASK_PAGE_SIZE);
+    expect(computeTaskStats(overCap).total).toBe(TASK_PAGE_SIZE + 1);
   });
 
   it("does not derive lifetime stats from the capped list query key", () => {
