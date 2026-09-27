@@ -1,15 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { corsHeadersFor, isAllowedOrigin } from "./cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-Scheduler-Token",
-};
-
-function jsonResponse(body: unknown, status: number): Response {
+function jsonResponse(body: unknown, status: number, origin: string | null): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeadersFor(origin), "Content-Type": "application/json" },
   });
 }
 
@@ -29,8 +24,18 @@ function secureEquals(a: string, b: string): boolean {
 }
 
 Deno.serve(async (req: Request) => {
+  const origin = req.headers.get("Origin");
+
+  /*
+   * Preflight. A browser always sends `Origin`, so an OPTIONS request without a
+   * verified origin is rejected rather than answered with a permissive policy.
+   * The non-browser scheduler only ever issues POST and is unaffected.
+   */
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    if (!isAllowedOrigin(origin)) {
+      return new Response(null, { status: 403 });
+    }
+    return new Response(null, { status: 204, headers: corsHeadersFor(origin) });
   }
 
   try {
@@ -39,7 +44,7 @@ Deno.serve(async (req: Request) => {
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error("process-reminders: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-      return jsonResponse({ error: "Internal error" }, 500);
+      return jsonResponse({ error: "Internal error" }, 500, origin);
     }
 
     // This routine processes reminders for EVERY user and bypasses row level
@@ -77,7 +82,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!authorized) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+      return jsonResponse({ error: "Unauthorized" }, 401, origin);
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -89,12 +94,12 @@ Deno.serve(async (req: Request) => {
     if (error) {
       // Log the detail server-side; never return backend error text to a caller.
       console.error("process-reminders: rpc failed:", error.message);
-      return jsonResponse({ error: "Internal error" }, 500);
+      return jsonResponse({ error: "Internal error" }, 500, origin);
     }
 
-    return jsonResponse(data, 200);
+    return jsonResponse(data, 200, origin);
   } catch (err) {
     console.error("process-reminders: unhandled error:", err);
-    return jsonResponse({ error: "Internal error" }, 500);
+    return jsonResponse({ error: "Internal error" }, 500, origin);
   }
 });
