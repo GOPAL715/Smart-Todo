@@ -193,6 +193,7 @@ describe("timezone update propagates to the in-memory profile", () => {
       "Unable to connect. Please check your internet connection and try again."
     );
   });
+});
 
 describe("failed refresh does not pretend the update succeeded", () => {
   it("preserves the previous profile when a refresh fails", async () => {
@@ -234,6 +235,10 @@ describe("failed refresh does not pretend the update succeeded", () => {
       profile: profile("America/New_York"),
     });
 
+    expect(recovered.error).toBeNull();
+    expect(recovered.profile?.timezone).toBe("America/New_York");
+  });
+});
 
 describe("task creation uses the new timezone after a change", () => {
   /*
@@ -249,9 +254,15 @@ describe("task creation uses the new timezone after a change", () => {
     const timezone = applyProfile(result);
 
     expect(timezone).toBe("America/New_York");
-    // 09:00 EST (UTC-5) is 14:00Z, not 03:30Z as Asia/Kolkata (UTC+5:30) would give.
+    /*
+     * 2026-03-10 is AFTER the 2026-03-08 US spring-forward, so New York is on
+     * EDT (UTC-4) and 09:00 local is 13:00Z — not 14:00Z, which is the EST
+     * (UTC-5) answer for a pre-transition date. The 03:30Z that Asia/Kolkata
+     * (UTC+5:30, no DST) would produce is the value this test exists to rule
+     * out, proving the NEW zone is what actually converted the wall clock.
+     */
     expect(buildTaskSchedule("2026-03-10", "09:00", "10:00", timezone!).start_datetime).toBe(
-      "2026-03-10T14:00:00.000Z"
+      "2026-03-10T13:00:00.000Z"
     );
   });
 
@@ -261,10 +272,10 @@ describe("task creation uses the new timezone after a change", () => {
     const after = buildTaskSchedule("2026-03-10", "09:00", "10:00", applyProfile(result)!);
 
     expect(after.start_datetime).not.toBe(before.start_datetime);
-    // A 10h30m separation is the real difference between UTC+5:30 and UTC-5.
+    // 9h30m = the real difference between UTC+5:30 (IST) and UTC-4 (EDT).
     expect(
       new Date(after.start_datetime).getTime() - new Date(before.start_datetime).getTime()
-    ).toBe(10.5 * 60 * 60 * 1000);
+    ).toBe(9.5 * 60 * 60 * 1000);
   });
 
   it("converts correctly again after switching back", async () => {
@@ -319,14 +330,6 @@ describe("existing timezone behaviour is unchanged", () => {
     );
   });
 });
-
-    expect(recovered.error).toBeNull();
-    expect(recovered.profile?.timezone).toBe("America/New_York");
-  });
-});
-
-});
-
 
 describe("profile timezone load", () => {
   it("loads the stored timezone from the profile row", async () => {
