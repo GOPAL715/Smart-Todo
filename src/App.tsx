@@ -13,13 +13,32 @@ import { SignupPage } from "@/pages/SignupPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { TaskListPage } from "@/pages/TaskListPage";
-import { TaskFormPage } from "@/pages/TaskFormPage";
-import { SmartTaskPage } from "@/pages/SmartTaskPage";
-import { TaskDetailPage } from "@/pages/TaskDetailPage";
-import { CalendarPage } from "@/pages/CalendarPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { ReminderProcessor } from "@/hooks/useReminderProcessor";
+import { lazyRoute } from "@/components/LazyRoute";
+import { LAZY_ROUTE_LOADERS } from "@/components/lazyRoutes";
+
+/*
+ * Routes that are not part of either entry path are fetched on demand.
+ *
+ * The four authentication screens and the dashboard stay eager on purpose:
+ * a signed-out visitor always lands on /login, and every authenticated session
+ * is redirected to /app/dashboard, so deferring either would add a network round
+ * trip to the first paint for every user while saving nothing. The recovery
+ * screens in particular sit in the middle of the Phase 14E password-reset flow,
+ * where a link is followed from an email and a slow chunk fetch is a worse
+ * experience than a marginally larger bundle.
+ *
+ * Everything below is reached only by navigating within the app, so its code is
+ * never needed to render the shell and is now loaded per route instead. The
+ * loaders themselves live in `@/components/lazyRoutes` so the route table and
+ * the test that guards these export names cannot drift apart.
+ */
+const TaskListPage = lazyRoute(LAZY_ROUTE_LOADERS.TaskListPage);
+const TaskFormPage = lazyRoute(LAZY_ROUTE_LOADERS.TaskFormPage);
+const SmartTaskPage = lazyRoute(LAZY_ROUTE_LOADERS.SmartTaskPage);
+const TaskDetailPage = lazyRoute(LAZY_ROUTE_LOADERS.TaskDetailPage);
+const CalendarPage = lazyRoute(LAZY_ROUTE_LOADERS.CalendarPage);
+const SettingsPage = lazyRoute(LAZY_ROUTE_LOADERS.SettingsPage);
 
 const queryClient = new QueryClient({
   defaultOptions: {
