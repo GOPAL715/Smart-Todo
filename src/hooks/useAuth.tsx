@@ -10,6 +10,12 @@ import {
   updateProfileTimezone as persistTimezone,
   type ProfileResult,
 } from "@/services/profileService";
+import {
+  requestPasswordReset as sendPasswordReset,
+  updatePassword as persistPassword,
+  type ResetRequestResult,
+  type UpdatePasswordResult,
+} from "@/services/passwordResetService";
 import { AuthContext, type AuthContextValue } from "@/hooks/useAuthContext";
 import type { Profile } from "@/types";
 
@@ -31,6 +37,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // inconsistently, and so a single atomic update replaces both.
   const [profileState, setProfileState] = useState<ProfileState>(NO_PROFILE);
   const [loading, setLoading] = useState(true);
+  /*
+   * Set when Supabase reports PASSWORD_RECOVERY, and cleared by any later event
+   * that carries a session or by sign-out.
+   *
+   * `detectSessionInUrl` is enabled, so a recovery link is exchanged for a real
+   * session by Supabase before this sees it; the app never parses the link's
+   * tokens itself. The flag records only how the current session was obtained,
+   * so the reset screen knows to offer the new-password form. It is cleared
+   * when the user signs out, and when a session arrives by any other route, so
+   * it cannot survive into an unrelated login.
+   */
+  const [isRecoverySession, setIsRecoverySession] = useState(false);
   const queryClient = useQueryClient();
   const { profile, error: profileError } = profileState;
 
@@ -87,11 +105,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       if (newSession?.user) {
+        /*
+         * Any event other than PASSWORD_RECOVERY that carries a session means
+         * the user arrived by an ordinary sign-in or a token refresh, so a
+         * recovery flag left over from a previous visit must not leak into it.
+         */
+        if (event === "PASSWORD_RECOVERY") {
+          setIsRecoverySession(true);
+        } else if (event !== "INITIAL_SESSION") {
+          setIsRecoverySession(false);
+        }
         void loadProfile(newSession.user.id);
       } else {
+        setIsRecoverySession(false);
         setProfileState(NO_PROFILE);
         // Covers explicit sign-out, expiry and revocation alike.
         void clearUserCaches();
@@ -122,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setProfileState(NO_PROFILE);
     setSession(null);
+    setIsRecoverySession(false);
     await clearUserCaches();
   }, [clearUserCaches]);
 
@@ -153,15 +183,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyProfileResult, session]
   );
 
+  /**
+   * Emails a recovery link.
+   *
+   * Delegated to the service so the redirect can never be influenced by the
+   * caller, and so the result carries no hint about whether the address is
+   * registered.
+   */
+  const requestPasswordReset = useCallback(
+    async (email: string): Promise<ResetRequestResult> => sendPasswordReset(email),
+    []
+  );
+
+  /**
+   * Applies a new password to the current session.
+   *
+   * On success the session is still a recovery session, so the flag is cleared
+   * here: the user has completed the reset and is now simply signed in, and
+   * leaving it set would send them back to the reset screen on a later visit.
+   */
+  const updatePassword = useCallback(
+    async (newPassword: string): Promise<UpdatePasswordResult> => {
+      const result = await persistPassword(newPassword);
+      if (result.ok) setIsRecoverySession(false);
+      return result;
+    },
+    []
+  );
+
   const value: AuthContextValue = {
     user: session?.user ?? null,
     profile,
     session,
     loading,
     profileError,
+    isRecoverySession,
     signIn,
     signUp,
     signOut,
+    requestPasswordReset,
+    updatePassword,
     refreshProfile,
     updateProfileTimezone,
   };

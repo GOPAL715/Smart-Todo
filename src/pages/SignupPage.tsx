@@ -2,20 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { getAuthErrorMessage } from "@/utils/authErrors";
+import { getPasswordStrength, validateNewPassword } from "@/utils/passwordPolicy";
 import { Bell } from "lucide-react";
-
-function getPasswordStrength(password: string): { score: number; label: string; suggestions: string[] } {
-  if (!password) return { score: 0, label: "", suggestions: [] };
-  let score = 0;
-  const suggestions: string[] = [];
-  if (password.length >= 8) score++; else suggestions.push("At least 8 characters");
-  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++; else suggestions.push("Uppercase and lowercase letters");
-  if (/\d/.test(password)) score++; else suggestions.push("A number");
-  if (/[^a-zA-Z0-9]/.test(password)) score++; else suggestions.push("A special character");
-
-  const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
-  return { score, label: labels[score] ?? "Very strong", suggestions };
-}
 
 export function SignupPage() {
   const { signUp } = useAuth();
@@ -39,17 +27,11 @@ export function SignupPage() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       e.email = "Please enter a valid email address.";
     }
-    if (!password) {
-      e.password = "Please enter a password.";
-    } else if (password.length < 8) {
-      e.password = "Password must be at least 8 characters.";
-    } else if (strength.score < 3) {
-      e.password = "Password is too weak. Please use a stronger password.";
-    }
-    if (!confirmPassword) {
-      e.confirmPassword = "Please confirm your password.";
-    } else if (password !== confirmPassword) {
-      e.confirmPassword = "Passwords do not match.";
+    // The same shared policy the password-reset screen uses, so a password that
+    // is accepted here is never rejected there.
+    const passwordCheck = validateNewPassword(password, confirmPassword);
+    if (!passwordCheck.ok) {
+      e[passwordCheck.field] = passwordCheck.error;
     }
     setFieldErrors(e);
     return Object.keys(e).length === 0;

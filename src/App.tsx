@@ -10,6 +10,8 @@ import { ConfigurationNotice } from "@/components/ConfigurationNotice";
 import { supabaseConfigError } from "@/services/supabase";
 import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
+import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { TaskListPage } from "@/pages/TaskListPage";
 import { TaskFormPage } from "@/pages/TaskFormPage";
@@ -59,6 +61,16 @@ function App() {
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/signup" element={<SignupPage />} />
+                  {/*
+                    Both reset screens sit outside ProtectedRoute on purpose.
+                    A recovery link signs the user in, so `/reset-password` must
+                    stay reachable directly; it renders its own no-session branch
+                    when the link was invalid, expired, or already used. The
+                    catch-all below would otherwise bounce a user who followed a
+                    dead link straight to a dashboard they cannot load.
+                  */}
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
 
                   <Route
                     path="/app"
