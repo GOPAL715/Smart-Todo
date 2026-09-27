@@ -4,8 +4,9 @@ A production-quality todo application with intelligent time-based task reminders
 
 ## Features
 
-- **User Authentication** — Sign up, login, logout with secure JWT-based auth
+- **User Authentication** — Sign up, login, logout, and password reset via emailed recovery link
 - **Task Management** — Full CRUD: create, view, edit, delete, start, complete, cancel tasks
+- **Pagination** — Task list and notification centre load a page at a time with a visible "showing X of Y" total and Load more, so a large account never silently stops at a row cap
 - **Recurring Tasks** — Daily, weekly or monthly tasks; the next occurrence is generated automatically on the server, with its own reminders, when the current one ends
 - **Task Sharing** — Share a task with another user by email, as view-only or can-edit; the recipient sees it in their lists and is notified once
 - **Smart Reminders** — Configurable reminders (1 day, 2 hours, 1 hour, 30 min, 15 min, 10 min, 5 min, at start)
@@ -23,7 +24,7 @@ A production-quality todo application with intelligent time-based task reminders
 - **Timezone Handling** — All times stored as UTC (timestamptz); displayed in user timezone (default: Asia/Kolkata)
 - **Responsive Design** — Works on desktop, tablet, and mobile
 - **Dark Mode** — Light, dark, and system-following themes; persists across sessions
-- **PWA** — Installable as a standalone app with offline shell; authenticated API data is not runtime-cached
+- **PWA** — Installable as a standalone app with a precached app shell; authenticated API data is not runtime-cached
 
 ## Architecture
 
@@ -44,12 +45,12 @@ A production-quality todo application with intelligent time-based task reminders
 ```
 src/
 ├── components/ui/       # Reusable UI components (TaskCard, ShareTaskPanel)
-├── pages/               # Page components (Dashboard, TaskList, TaskForm, TaskDetail, Calendar, Settings, Login, Signup)
+├── pages/               # Page components (Dashboard, TaskList, TaskForm, TaskDetail, Calendar, Settings, SmartTask, Login, Signup, ForgotPassword, ResetPassword)
 ├── layouts/             # Layout components (AppLayout with sidebar + notifications + offline banner)
-├── hooks/               # Custom hooks (useAuth, useTheme, useReminderProcessor, useOnlineStatus, useUserTimezone, useDismissable)
-├── services/            # Service layer (supabase client, taskService, tagService, subtaskService, notificationService, shareService, queryKeys)
+├── hooks/               # Custom hooks (useAuth, useTheme, useReminderProcessor, useOnlineStatus, useUserTimezone, useDismissable, usePagedCollection)
+├── services/            # Service layer (supabase client, taskService, tagService, subtaskService, notificationService, shareService, profileService, passwordResetService, queryKeys)
 ├── types/               # TypeScript type definitions
-├── utils/               # Utilities (dateTime, timezone conversion, dashboard analytics, PWA cache, validation, batching)
+├── utils/               # Utilities (dateTime, timezone conversion, dashboard analytics, PWA cache, batching, pagination, appError, notificationPanel, taskIntelligence, passwordPolicy)
 └── routes/              # Route guards (ProtectedRoute)
 ```
 
@@ -232,7 +233,8 @@ Access control is enforced in the database, not in the interface:
 - Task status updates via `PATCH`-style updates
 
 ### Tags (via Supabase client with RLS)
-- `GET/POST /tags`, `PATCH/DELETE /tags/{id}` — user-owned tags, unique name per user
+- `GET /tags`, `POST /tags` — list and create user-owned tags, unique name per user
+- There is no rename or delete API in this application; a tag is created and then attached to tasks
 - `POST /task_tags` / `DELETE /task_tags` — attach/detach (RLS: own task or EDIT share; tag ids the caller cannot access are silently dropped, never errored)
 
 ### Subtasks (via Supabase client with RLS)
@@ -300,20 +302,85 @@ is used; the `dark` class toggles on `<html>`.
 
 ### PWA / Offline
 The app is installable as a Progressive Web App. A Workbox-generated service worker
-precaches the app shell (HTML, JS, CSS, icons) for offline access. Supabase GET API
-calls use NetworkFirst caching (5s timeout, 1-hour TTL) so previously loaded data
-remains available offline. Auth endpoints are NetworkOnly. Mutations are disabled
-while offline with a clear UI indicator. Runtime caches are cleared on logout to
-prevent cross-user data leakage.
+(`registerType: 'autoUpdate'`) precaches the static app shell — HTML, JS, CSS and icons
+(`globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}']`), with `navigateFallback` to
+`/index.html`, so previously installed builds open without a network connection.
+
+What is **not** cached, deliberately:
+
+- **No Supabase API response is runtime-cached.** Auth requests and every non-GET
+  request to `*.supabase.co` are `NetworkOnly`, and there is no GET rule for the
+  data API at all. Authenticated rows are therefore *not* available offline. This
+  was changed from an earlier NetworkFirst scheme because a shared Workbox cache
+  holding bearer-authenticated responses can serve one account's data to another.
+- **No background sync and no offline writes.** Nothing is queued for later
+  delivery; a request that cannot reach the network simply fails.
+- Google Fonts are `CacheFirst` (static assets only).
+
+While offline the app shows a banner, the unread-count poll is suspended, and
+**creating** a task is blocked by a disabled submit button. Other screens still
+attempt their request and surface a normal error.
+
+Signed-out transitions and session expiry clear the authenticated caches, so one
+account's cached responses cannot be shown to the next.
+
+### Password reset
+Password reset uses the standard Supabase Auth recovery flow.
+
+1. `/forgot-password` — the user enters an email and the app calls
+   `supabase.auth.resetPasswordForEmail(email, { redirectTo })`, where `redirectTo`
+   is always `<current origin>/reset-password`. It is derived from the app's own
+   origin and a fixed route; the user cannot supply it, so the recovery link
+   cannot be aimed elsewhere.
+2. The same neutral confirmation is shown whether or not the address is registered
+   ("If an account exists for this email, you'll receive a password reset link."),
+   so the page cannot be used to discover which addresses have accounts.
+3. Following the emailed link lands on `/reset-password`. Supabase exchanges the
+   recovery token for a real session and the app records that it arrived via
+   `PASSWORD_RECOVERY`; the app never parses the link's tokens itself.
+4. The new password and its confirmation are submitted to
+   `supabase.auth.updateUser({ password })`, which Supabase refuses without a valid
+   session. The page applies the same policy as sign-up — at least 8 characters
+   with mixed case, a number and a symbol — and shows the same strength meter.
+5. If the link is invalid, expired or already used there is no session, so the
+   form is never rendered and the user is offered a new link.
+
+Required dashboard configuration (**Supabase → Authentication → URL Configuration**):
+the Site URL plus `https://<your-frontend-host>/reset-password` and
+`http://localhost:5173/reset-password` under **Redirect URLs**. The same
+placeholder, rate-limit and leaked-password protections that apply to sign-up
+also apply here.
+
+### Automated health monitoring
+`supabase/ops/health_check.sql` is read-only and safe against production. A
+GitHub Actions workflow, **SmartTodo Production Health**
+(`.github/workflows/health-monitor.yml`), runs it on a **15-minute schedule** and
+can also be started by hand from the Actions tab.
+
+- Only a `FAIL` row fails the run. `WARN` is reported but non-fatal, because the
+  scheduler fires every minute and a 2–5 minute gap is normal jitter.
+- Output that cannot be parsed fails **closed**, so a broken check never reads as
+  a healthy one.
+- The alert is the ordinary GitHub Actions failed-run notification. Whether that
+  reaches anyone by email depends on the repository's notification settings; no
+  external monitoring vendor is configured.
+
+> **Not currently armed.** The workflow requires a `DATABASE_URL` repository
+> secret (the Supabase **pooler** connection string) that has not been added. Until
+> it is, the scheduled run fails with a configuration error and no production
+> health signal is actually being produced. See
+> [the runbook](supabase/ops/RUNBOOK.md#2a-automated-health-monitoring) for the
+> exact setup and the manual procedure.
 
 ## Local Setup
 
 1. The Supabase backend is provisioned separately. Copy `.env.example` to `.env` and fill in
    `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from **Supabase → Project Settings → API**.
    `.env` is gitignored; the browser only ever receives the publishable (anon) key.
-2. Install dependencies:
+2. Install dependencies. `npm ci` installs exactly what `package-lock.json` pins and
+   is what CI uses, so it is the reproducible choice:
    ```bash
-   npm install
+   npm ci
    ```
 3. Run the dev server:
    ```bash
@@ -336,8 +403,21 @@ prevent cross-user data leakage.
    npm run lint
    ```
 
-The pgTAP suites in `supabase/tests/` are separate and run only against a
-**disposable local database**, never production. See
+### Quality gates
+Every change is validated on pull requests and on every push to `main` by the
+**SmartTodo CI** workflow, which fails the build on any non-zero exit:
+
+| Gate | Command |
+|---|---|
+| Unit tests (Vitest) | `npm test` |
+| Type check | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Production build | `npm run build` |
+| Database tests (pgTAP) | run in a disposable local database, never production |
+
+The pgTAP suites in `supabase/tests/` (6 suites, 86 assertions) run in CI against a
+**disposable local database** created per run and destroyed afterwards. They are never
+pointed at production. See
 [`supabase/ops/RUNBOOK.md`](supabase/ops/RUNBOOK.md#7-pgtap-database-tests).
 
 ## Environment Variables
@@ -368,7 +448,7 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 - Task sharing with view-only and can-edit permissions
 - Per-user timezone selection affecting all task input and display
 - Dark mode with light/dark/system options and localStorage persistence
-- PWA with offline shell, public asset caching, and online/offline indicator
+- PWA with a precached app shell, public asset caching, and an online/offline indicator (no API caching)
 - Phase 11A — Security/reliability hardening: auth cache isolation, per-user query-key
   scoping, and hardened reminder creation
 - Phase 11B — Calendar performance and error handling: one bounded range query per month
@@ -382,6 +462,17 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 - Phase 11E — Operations: 30-day retention for scheduler run history (migration 026, no
   extra cron job), a read-only [health check](supabase/ops/health_check.sql), and an
   [operations runbook](supabase/ops/RUNBOOK.md)
+- Phases 12–14 — Timezone profile synchronisation, an automated CI quality gate
+  (Vitest, typecheck, lint, build, plus the pgTAP database suites in a disposable
+  local database), a password-reset flow, and a hardened Edge Function CORS policy
+  that removed a wildcard origin
+- Phase 15 — Pagination: the task list and notification centre load a page at a
+  time and report an exact total, replacing silent 500/100-row truncation
+- Phase 16 — Route code splitting: six secondary page chunks load on demand while
+  the shell, auth screens and dashboard stay in the initial bundle
+- Phases 18–20 — Notification-panel accessibility (correct non-modal semantics,
+  focus management, Escape and focus restoration), a single user-facing error
+  taxonomy, and per-page batched tag lookups that stop re-sending ids already loaded
 
 ## Blocked
 
