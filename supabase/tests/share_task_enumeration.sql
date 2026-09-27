@@ -152,11 +152,28 @@ SELECT is(
   'EDIT',
   'an already-shared target still has its permission updated'
 );
+-- ============ recipient notification is observed AS the recipient ============
+-- `notifications` RLS is `select_own_notifications ... USING (auth.uid() = user_id)`
+-- (migration 001), so a notification row is visible only to the identity it
+-- belongs to. `share_task` is SECURITY DEFINER and writes the row for the
+-- recipient b1 while the caller remains the owner a1, so asserting under a1
+-- counts only a1's own (zero) rows and reports 0 no matter what was written.
+-- Act as the recipient for this assertion so it genuinely observes the row that
+-- the new-share path created. Still the `authenticated` role: no BYPASSRLS, no
+-- definer role, no policy change.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000b1',true);
 SELECT is(
   (SELECT count(*) FROM public.notifications WHERE user_id='00000000-0000-0000-0000-0000000000b1'),
   1::bigint,
   'the recipient is notified exactly once for a new share'
 );
+
+-- Back to the owner for the share-row assertions. `task_shares` is readable by
+-- either party (`shared_with = auth.uid() OR shared_by = auth.uid()`), so as the
+-- owner a1 this sees every row of this test and the NOT EXISTS check below is
+-- genuine. Under b1 the a1/c1 rows would be RLS-invisible and the check would
+-- pass vacuously.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000a1',true);
 SELECT ok(
   NOT EXISTS (
     SELECT 1 FROM public.task_shares
@@ -164,12 +181,21 @@ SELECT ok(
   ),
   'self-share and unregistered addresses create no share row'
 );
+
+-- ============ the stranger's notification state is observed AS the stranger ============
+-- Same RLS reasoning, opposite direction: the self-share (a1) and the
+-- unregistered address never reached the INSERT, so nothing should exist for
+-- c1 either. Asserted as c1 so the row visibility is real rather than the
+-- owner simply being unable to see another user's notifications. The identity is
+-- restored to a1 immediately afterwards.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000c1',true);
 SELECT is(
   (SELECT count(*) FROM public.notifications
    WHERE user_id IN ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000c1')),
   0::bigint,
   'self-share and unregistered addresses notify nobody'
 );
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000a1',true);
 
 -- ============ no raw provider text is ever returned ============
 SELECT ok(
