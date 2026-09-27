@@ -230,6 +230,7 @@ pass, inside the existing dispatch function. No additional cron job was created.
 | Vault `process_reminders_scheduler_token` | database only | **yes** |
 | `OPENAI_API_KEY` | `parse-task-with-ai` only | **yes** |
 | `OPENAI_MODEL` | `parse-task-with-ai` only | no |
+| `AI_TASK_PROVIDER` | ops default | no |
 
 The **anon** key is safe in the browser: it is protected by RLS. The
 **service-role** key bypasses RLS and must never reach a browser, a `VITE_*`
