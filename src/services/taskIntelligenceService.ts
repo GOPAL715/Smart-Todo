@@ -30,8 +30,6 @@ export interface ParseOptions {
   todayStr: string;
   /** Names of the user's existing tags, for suggestion only. */
   existingTagNames?: string[];
-  /** The instant used to resolve relative dates. Injected for determinism. */
-  now?: Date;
 }
 
 /**
@@ -62,27 +60,15 @@ export function getTaskIntelligenceProvider(): TaskIntelligenceProvider {
   return activeProvider;
 }
 
-/** Replaces the active provider. */
+/**
+ * Replaces the active provider.
+ *
+ * A future LLM implementation is registered here. It would be invoked through a
+ * Supabase Edge Function so that any API credential stays server-side; this
+ * client must never hold a private key.
+ */
 export function setTaskIntelligenceProvider(provider: TaskIntelligenceProvider): void {
   activeProvider = provider;
-}
-
-/** Provider ids that may be selected through configuration. */
-export type ProviderId = "deterministic" | "openai";
-
-/**
- * Resolves a configured provider id to a provider instance.
- *
- * An unknown, empty, or absent value resolves to the deterministic parser, so a
- * typo in configuration degrades safely instead of breaking task creation or
- * enabling a paid provider by accident.
- */
-export function resolveProvider(
-  id: string | undefined,
-  aiProvider: TaskIntelligenceProvider
-): TaskIntelligenceProvider {
-  if (id === "openai") return aiProvider;
-  return deterministicProvider;
 }
 
 /**
@@ -95,13 +81,11 @@ export async function generateTaskDraft(
   input: string,
   options: { timezone: string; existingTagNames?: string[]; now?: Date }
 ): Promise<ParseOutcome> {
-  const now = options.now ?? new Date();
-  const todayStr = localDateStr(now, options.timezone);
+  const todayStr = localDateStr(options.now ?? new Date(), options.timezone);
   return activeProvider.parse(input, {
     timezone: options.timezone,
     todayStr,
     existingTagNames: options.existingTagNames ?? [],
-    now,
   });
 }
 

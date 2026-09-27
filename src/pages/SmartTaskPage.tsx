@@ -10,12 +10,9 @@ import { analyzeTask, toAnalyzableDraft } from "@/utils/taskIntelligence";
 import { createTask, type CreateTaskInput } from "@/services/taskService";
 import { getTags } from "@/services/tagService";
 import {
-  deterministicProvider,
+  generateTaskDraft,
   getTaskIntelligenceProvider,
-  type TaskIntelligenceProvider,
 } from "@/services/taskIntelligenceService";
-import { openAIProvider } from "@/services/openAITaskProvider";
-import { isAiProviderConfigured } from "@/config/taskProviderConfig";
 import { queryKeys } from "@/services/queryKeys";
 import { validateTimeRange } from "@/utils/timeInput";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
@@ -61,9 +58,6 @@ export function SmartTaskPage() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const provider = getTaskIntelligenceProvider();
-  const aiEnabled = isAiProviderConfigured();
-  const [aiUsed, setAiUsed] = useState(false);
-  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -78,52 +72,29 @@ export function SmartTaskPage() {
     setUnresolved([]);
     setErrors({});
     setSaveError("");
-    setAiUsed(false);
   };
 
   // Escape abandons the unreviewed draft rather than saving anything.
   useDismissable(draft !== null, discardDraft, inputRef);
 
-  /**
-   * Runs a provider and loads the result for review.
-   *
-   * The provider is passed explicitly rather than mutated globally, so a failed
-   * AI attempt can fall back to the local parser without leaving the app in a
-   * state where a later keystroke would silently call a paid provider.
-   */
-  const runProvider = async (which: TaskIntelligenceProvider) => {
+  const handleGenerate = async () => {
     setParseError("");
     setSaveError("");
-    setGenerating(true);
-    try {
-      const result = await which.parse(input, {
-        timezone: userTimezone,
-        todayStr: localDateStr(new Date(), userTimezone),
-        existingTagNames: availableTags.map((t) => t.name),
-      });
+    const result = await generateTaskDraft(input, {
+      timezone: userTimezone,
+      existingTagNames: availableTags.map((t) => t.name),
+    });
 
-      if (!result.ok) {
-        setParseError(result.error);
-        return;
-      }
-
-      setDraft(result.value.draft);
-      setNotes(result.value.notes);
-      setUnresolved(result.value.unresolved as string[]);
-      setErrors({});
-      setAiUsed(which.id === "openai");
-    } finally {
-      setGenerating(false);
+    if (!result.ok) {
+      setParseError(result.error);
+      return;
     }
+
+    setDraft(result.value.draft);
+    setNotes(result.value.notes);
+    setUnresolved(result.value.unresolved as string[]);
+    setErrors({});
   };
-
-  const handleGenerate = () => runProvider(deterministicProvider);
-
-  /**
-   * Explicit, user-initiated AI generation. Never runs on keystroke, on render,
-   * or on form change, so no request can be generated without a deliberate click.
-   */
-  const handleGenerateWithAi = () => runProvider(openAIProvider);
 
   /** Ids of tags the draft suggested AND the user kept confirmed. */
   const confirmedTagIds = useMemo(() => {
@@ -270,44 +241,15 @@ export function SmartTaskPage() {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={input.trim().length === 0 || generating}
-              className="btn-primary w-full sm:w-auto"
-            >
-              <Sparkles size={16} />
-              Generate Task
-            </button>
-
-            {/*
-              AI generation is a separate, explicit action. It is only rendered
-              when the deployment has enabled the provider, and it never runs
-              automatically on input change.
-            */}
-            {aiEnabled && (
-              <button
-                type="button"
-                onClick={handleGenerateWithAi}
-                disabled={input.trim().length === 0 || generating}
-                className="btn-secondary w-full sm:w-auto"
-              >
-                <Sparkles size={16} />
-                {generating ? "Generating…" : "Generate with AI"}
-              </button>
-            )}
-          </div>
-
-          {aiUsed && (
-            <p
-              role="status"
-              className="text-xs text-neutral-500 dark:text-neutral-400"
-            >
-              Generated with AI — review before saving. The result may be
-              incomplete, and nothing is saved until you choose Save Task.
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={input.trim().length === 0}
+            className="btn-primary w-full sm:w-auto"
+          >
+            <Sparkles size={16} />
+            Generate Task
+          </button>
 
           <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800">
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">

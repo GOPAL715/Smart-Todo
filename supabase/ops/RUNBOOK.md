@@ -224,44 +224,13 @@ pass, inside the existing dispatch function. No additional cron job was created.
 |---|---|---|
 | `VITE_SUPABASE_URL` | browser build | no |
 | `VITE_SUPABASE_ANON_KEY` | browser build | no — publishable by design |
-| `VITE_AI_TASK_PROVIDER` | browser build | no — selects a feature only |
 | `SUPABASE_URL` | edge function | no |
 | `SUPABASE_SERVICE_ROLE_KEY` | edge function | **yes** |
 | Vault `process_reminders_scheduler_token` | database only | **yes** |
-| `OPENAI_API_KEY` | `parse-task-with-ai` only | **yes** |
-| `OPENAI_MODEL` | `parse-task-with-ai` only | no |
-| `AI_TASK_PROVIDER` | ops default | no |
 
 The **anon** key is safe in the browser: it is protected by RLS. The
 **service-role** key bypasses RLS and must never reach a browser, a `VITE_*`
 variable, or a committed file.
-
-### AI task parsing (`parse-task-with-ai`)
-
-This function interprets a natural-language description into a *draft*. It
-cannot create, modify or delete any task, and it deliberately does **not** use
-the service-role key: the caller is authenticated with the **anon** key and
-their own session token, so RLS and user identity behave exactly as they do for
-the rest of the app. Saving remains the browser's job through `createTask`.
-
-Server-side variables (set with `supabase secrets set`, never in a `.env` file):
-
-- `OPENAI_API_KEY` — **required** for the AI path. Without it the function
-  returns 503 and the app silently falls back to the on-device parser.
-- `OPENAI_MODEL` — optional. Defaults to `gpt-4o-mini`, a small cost-sensitive
-  model that is sufficient for this tightly-scoped structured extraction. Raise
-  it only if extraction quality proves inadequate; a larger model costs more per
-  call and is not needed for a schema-constrained output.
-
-Frontend variable (safe, because it carries no credential):
-
-- `VITE_AI_TASK_PROVIDER=openai` — adds the "Generate with AI" button. Any
-  other or absent value keeps the deterministic parser, so existing users are
-  never billed for AI they did not opt into.
-
-**Never** place `OPENAI_API_KEY` in a `.env` file, a `VITE_*` variable, or any
-committed file. A `VITE_` variable is inlined into the browser bundle at build
-time and is therefore public.
 
 ### Never commit
 
