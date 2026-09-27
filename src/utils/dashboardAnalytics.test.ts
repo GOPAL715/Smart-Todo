@@ -119,6 +119,8 @@ describe("isWithinDateRange", () => {
 
   it("excludes days outside the range", () => {
     expect(isWithinDateRange("2026-09-19", "2026-09-20", "2026-09-26")).toBe(false);
+    expect(isWithinDateRange("2026-09-27", "2026-09-20", "2026-09-26")).toBe(false);
+  });
 
 describe("calendar grid", () => {
   it("anchors the month to the user's calendar date, not the browser's", () => {
@@ -143,7 +145,11 @@ describe("calendar grid", () => {
   it("covers the month for a 31-day month starting on Saturday", () => {
     const { startStr, endStr, days } = getCalendarGridRange(getCalendarMonthAnchor("2026-08-10"));
     expect(startStr).toBe("2026-07-26");
-    expect(endStr).toBe("2026-09-06");
+    // August 2026: the 1st is a Saturday and the 31st a Monday, so the last
+    // whole week ends on the following Saturday, the 5th — not the 6th, which
+    // is a Sunday and would break the Sunday-start/Saturday-end invariant the
+    // sibling grid test asserts.
+    expect(endStr).toBe("2026-09-05");
     expect(days.some((d) => toDateStr(d) === "2026-08-01")).toBe(true);
     expect(days.some((d) => toDateStr(d) === "2026-08-31")).toBe(true);
   });
@@ -202,9 +208,6 @@ describe("computeRangeAnalytics", () => {
     expect(result.overdue).toBe(1);
   });
 });
-
-    expect(isWithinDateRange("2026-09-27", "2026-09-20", "2026-09-26")).toBe(false);
-  });
 
   it("orders dates correctly across a year boundary", () => {
     expect(isWithinDateRange("2027-01-01", "2026-12-27", "2027-01-02")).toBe(true);
