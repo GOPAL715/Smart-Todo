@@ -73,3 +73,66 @@ jobs:
       # delivery stays a separate, manual concern.
       - name: Build for production
         run: npm run build
+
+  database-tests:
+    name: Database tests (pgTAP)
+    runs-on: ubuntu-latest
+    # Longer than the application job because this one boots a real Postgres
+    # container and applies 26 migrations from scratch on every run. The bound
+    # still guarantees a hung Supabase startup fails the job rather than hanging.
+    timeout-minutes: 20
+
+    env:
+      # Pinned to the version the RUNBOOK documents (`npx supabase@2.117.0`), so
+      # the local stack, migration application and test runner are reproducible
+      # rather than drifting with the latest release.
+      SUPABASE_CLI_VERSION: '2.117.0'
+      # Keep the CLI entirely non-interactive: it would otherwise prompt for
+      # telemetry consent and block the job on a runner with no TTY.
+      DO_NOT_TRACK: '1'
+      # Local-only container ports. These are the Supabase CLI's own defaults for
+      # a self-hosted stack and are never published to the internet; they exist
+      # only inside this ephemeral runner.
+      POSTGRES_PORT: '54322'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        # Same Node 20 LTS as the application job, for the npx-installed CLI.
+        # No `cache: npm` here: this job never runs `npm ci`, so there is no
+        # lockfile install to accelerate and no cache to go stale.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Starts a DISPOSABLE local Supabase stack: a throwaway Postgres container
+      # on this ephemeral runner. It is never linked to a remote project, needs
+      # no credentials, and disappears with the runner. This is the same
+      # `supabase start` flow the RUNBOOK documents for running the pgTAP suites.
+      - name: Start local Supabase
+        run: npx --yes supabase@${{ env.SUPABASE_CLI_VERSION }} start --yes
+
+      # Applies every migration in supabase/migrations/ to the disposable
+      # database. Migrations remain the single source of truth: nothing here
+      # recreates the schema by hand, and a failing migration fails the job.
+      - name: Apply migrations
+        run: npx --yes supabase@${{ env.SUPABASE_CLI_VERSION }} db reset --local --yes
+
+      # Runs ALL six existing pgTAP suites from supabase/tests/ via the Supabase
+      # CLI's own pgTAP runner. The suites are executed exactly as committed —
+      # no assertion is modified, filtered, or skipped, and the runner exits
+      # non-zero if any of them fail. Every suite is wrapped in BEGIN/ROLLBACK,
+      # so the database is left as the migrations defined it.
+      - name: Run pgTAP database tests
+        run: npx --yes supabase@${{ env.SUPABASE_CLI_VERSION }} test db --local supabase/tests
+
+      # Stops the stack even when an earlier step failed, so no container is left
+      # running. Deliberately allowed to fail: the job is already failing if this
+      # point is reached via a prior error, and a teardown problem must never
+      # mask the real failure.
+      - name: Stop local Supabase
+        if: always()
+        continue-on-error: true
+        run: npx --yes supabase@${{ env.SUPABASE_CLI_VERSION }} stop --yes
