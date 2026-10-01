@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error - plain ESM module with JSDoc types; TypeScript is not used to
 // typecheck this file (tsconfig.app.json only includes `src`), and Vitest
@@ -205,3 +207,79 @@ const FAILED_OUTPUT = [
   "recent_runs|FAIL|no run in the last 5 minutes",
   "retention|PASS|28741 retained run row(s)",
 ].join("\n");
+
+/*
+ * CLI REGRESSION — why these tests spawn a child process
+ *
+ * Every test above imports `runGate`, which can only ever prove the *policy* is
+ * right. It cannot prove the gate runs as a script at all, and that is exactly
+ * what broke in production.
+ *
+ * The entry-point guard used to compare `import.meta.url` against
+ * `new URL(`file:///${process.argv[1]}`)`. On Windows the template happens to
+ * match; on POSIX `process.argv[1]` is absolute, so the template produced four
+ * slashes and never matched `import.meta.url`. The CLI block was therefore
+ * skipped on `ubuntu-latest`: no summary was printed and the process exited 0
+ * unconditionally, so a genuine `FAIL` still produced a green workflow run.
+ *
+ * An imported `runGate` test cannot catch that, so these tests execute the real
+ * entry point with `process.execPath` and assert the actual exit status. The
+ * path is resolved from `import.meta.url`, so the same code runs on Windows and
+ * on `ubuntu-latest`, where CI is what validates the POSIX branch.
+ */
+const GATE_SCRIPT = fileURLToPath(new URL("./health_check_gate.mjs", import.meta.url));
+
+function runGateCli(args: string[]) {
+  return spawnSync(process.execPath, [GATE_SCRIPT, ...args], {
+    encoding: "utf8",
+  });
+}
+
+describe("CLI entry point (executed as a real child process)", () => {
+  it("exits 0 on PASS input and prints the summary", () => {
+    const result = runGateCli([HEALTHY_OUTPUT]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/SmartTodo production health check/);
+    expect(result.stdout).toMatch(/RESULT: PASS \(9 checks\)/);
+  });
+
+  it("exits 0 on WARN-only input, because WARN is not fatal", () => {
+    const result = runGateCli(["recent_runs|WARN|no run in the last 2-5 minutes"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/\[WARN\] recent_runs/);
+    expect(result.stdout).toMatch(/RESULT: PASS \(1 checks\)/);
+  });
+
+  it("exits non-zero on FAIL input — the regression that matters", () => {
+    // A `FAIL` reaching the actual CLI must never exit 0. While the guard was
+    // broken on POSIX this returned 0 with no output, which is what let an
+    // unhealthy production look green.
+    const result = runGateCli([FAILED_OUTPUT]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toMatch(/Failed checks: recent_runs/);
+    expect(result.stdout).toMatch(/RESULT: FAIL/);
+  });
+
+  it("exits non-zero on malformed, unparseable input", () => {
+    const result = runGateCli(["psql: error: connection failed"]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toMatch(/RESULT: FAIL \(no health-check results/);
+  });
+
+  it("exits non-zero when no health-check results are supplied at all", () => {
+    // No argument at all, and an explicitly empty one, must both fail closed.
+    expect(runGateCli([]).status).not.toBe(0);
+    expect(runGateCli([""]).status).not.toBe(0);
+  });
+
+  it("does not execute the CLI when the module is merely imported", () => {
+    // Importing must stay side-effect free: a passing import proves the guard did
+    // not fire, and therefore that the CLI tests above exercised the real path.
+    expect(runGate(HEALTHY_OUTPUT).exitCode).toBe(0);
+    expect(runGate(FAILED_OUTPUT).exitCode).toBe(1);
+  });
+});

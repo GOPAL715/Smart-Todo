@@ -33,6 +33,9 @@
  * directly with no build step.
  */
 
+// Node built-in only; no dependency is added.
+import { pathToFileURL } from "node:url";
+
 /** @typedef {{ check: string, status: string, detail: string }} CheckResult */
 
 /** Delimiter used by `psql -t -A -F '|'` to separate the three columns. */
@@ -186,8 +189,19 @@ export function runGate(raw) {
 }
 
 // Only act when executed directly, so the module can be imported by tests.
-const invokedDirectly =
-  process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1]}`).href;
+//
+// The entry point is compared with `pathToFileURL`, not by string concatenation.
+// `new URL(`file:///${process.argv[1]}`)` happens to work on Windows, where the
+// path has no leading slash, but on POSIX `process.argv[1]` is absolute
+// (`/home/runner/...`), so the template produces four slashes while
+// `import.meta.url` has three. The comparison then failed on every Linux
+// runner: the CLI block was skipped, nothing was evaluated, and the gate
+// exited 0 whatever the health check reported, so a real FAIL still looked
+// green in the production monitor.
+const entryPoint = process.argv[1];
+const invokedDirectly = entryPoint
+  ? import.meta.url === pathToFileURL(entryPoint).href
+  : false;
 
 if (invokedDirectly) {
   const raw = process.argv[2] ?? "";
