@@ -1,4 +1,5 @@
 import { REMINDER_OFFSETS } from "@/utils/dateTime";
+import { addMinutesToTime, DEFAULT_DURATION_MINUTES } from "@/utils/timeInput";
 import type { TaskPriority, Recurrence, TaskDraft, ParsedTaskDraft } from "@/types";
 
 /**
@@ -224,16 +225,6 @@ export function resolveRecurrence(text: string): {
     };
   }
   return { recurrence: null, note: null, needsWeekdayRule: false };
-}
-
-/** Default duration applied when the input names a start but no end. */
-const DEFAULT_DURATION_MINUTES = 60;
-
-/** Adds minutes to an `HH:mm` string, clamping within the day. */
-function addMinutesToTime(time: string, minutes: number): string {
-  const [h, m] = time.split(":").map(Number);
-  const total = Math.min(23 * 60 + 59, h * 60 + m + minutes);
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 /**

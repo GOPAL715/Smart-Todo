@@ -12,7 +12,7 @@ import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 import { RETRY_LABEL } from "@/utils/retryControl";
 import { getServiceErrorMessage } from "@/utils/serviceErrors";
 import { getTags, createTag } from "@/services/tagService";
-import { validateTimeRange } from "@/utils/timeInput";
+import { validateTimeRange, reconcileEndTime } from "@/utils/timeInput";
 import { queryKeys } from "@/services/queryKeys";
 import type { Tag, TaskPriority, Recurrence } from "@/types";
 
@@ -339,7 +339,18 @@ export function TaskFormPage() {
               aria-describedby={errors.startTime ? getFieldErrorId("startTime", "task") : undefined}
               className="input"
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
+              onChange={(e) => {
+                const nextStart = e.target.value;
+                setStartTime(nextStart);
+                /*
+                 * Moving the start can strand the end behind it, because the
+                 * form opens with independent 16:00 / 17:00 defaults. Only an
+                 * end that is already invalid is nudged forward; a valid one the
+                 * user picked is left alone, and validation still has the final
+                 * say on submit.
+                 */
+                setEndTime((prevEnd) => reconcileEndTime(nextStart, prevEnd));
+              }}
             />
             {errors.startTime && <p id={getFieldErrorId("startTime", "task")} role="alert" className="text-xs text-error-600 dark:text-error-400 mt-1">{errors.startTime}</p>}
           </div>

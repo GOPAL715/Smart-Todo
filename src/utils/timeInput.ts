@@ -24,6 +24,52 @@ export function timeToMinutes(time: string): number | null {
   return hours * 60 + minutes;
 }
 
+/**
+ * Default duration for a task that has a start but no usable end.
+ *
+ * This is not a new rule: the task form has always defaulted to 16:00 -> 17:00,
+ * and the natural-language parser defaults a single named time to the same
+ * length. Both entry points share it so they cannot drift apart.
+ */
+export const DEFAULT_DURATION_MINUTES = 60;
+
+/** Adds minutes to an `HH:mm` string, clamping within the day. */
+export function addMinutesToTime(time: string, minutes: number): string {
+  const base = timeToMinutes(time);
+  if (base === null) return time;
+  const total = Math.min(23 * 60 + 59, base + minutes);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Keeps a start/end pair usable when the user moves the start time.
+ *
+ * The form opens with fixed defaults, so raising the start past the default end
+ * left a stale end behind. `validateTimeRange` then rejected the form with a
+ * cross-midnight message for a task the user never asked to span midnight.
+ *
+ * The end is only touched when it has actually become invalid:
+ * - a valid end the user chose is always preserved, even a long one;
+ * - a malformed end is left alone so validation still reports it;
+ * - a start so late that no same-day end exists (23:59) is also left alone,
+ *   because cross-midnight tasks are genuinely unsupported and inventing an end
+ *   would either be invalid or weaken the existing rules.
+ */
+export function reconcileEndTime(startTime: string, endTime: string): string {
+  if (!isValidTimeInput(startTime) || !isValidTimeInput(endTime)) return endTime;
+
+  const start = timeToMinutes(startTime) as number;
+  const end = timeToMinutes(endTime) as number;
+
+  // Already valid: the user's own end time wins, whatever its length.
+  if (end > start) return endTime;
+
+  const suggested = addMinutesToTime(startTime, DEFAULT_DURATION_MINUTES);
+  const suggestedMinutes = timeToMinutes(suggested) as number;
+
+  return suggestedMinutes > start ? suggested : endTime;
+}
+
 export type TimeRangeError = {
   field: "startTime" | "endTime";
   message: string;
