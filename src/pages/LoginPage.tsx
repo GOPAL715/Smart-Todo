@@ -3,6 +3,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuthContext";
 import { getAuthErrorMessage } from "@/utils/authErrors";
 import { getFieldErrorId } from "@/utils/fieldErrorA11y";
+import { validateLoginForm } from "@/utils/loginValidation";
+import { INLINE_LINK_TOUCH_CLASS, MainContent, SkipLink } from "@/components/auth/SkipLink";
+import { AuthErrorBanner } from "@/components/auth/AuthErrorBanner";
 import { Bell, CheckCircle2, Clock, Calendar } from "lucide-react";
 
 export function LoginPage() {
@@ -19,16 +22,9 @@ export function LoginPage() {
     setError("");
     setFieldErrors({});
 
-    if (!email.trim()) {
-      setFieldErrors({ email: "Please enter your email address." });
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setFieldErrors({ email: "Please enter a valid email address." });
-      return;
-    }
-    if (!password) {
-      setFieldErrors({ password: "Please enter your password." });
+    const nextErrors = validateLoginForm(email, password);
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       return;
     }
 
@@ -44,7 +40,9 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-white dark:bg-neutral-950">
+    <>
+      <SkipLink />
+      <MainContent className="min-h-screen flex bg-white dark:bg-neutral-950">
       {/* Left panel */}
       <div className="hidden lg:flex lg:w-1/2 bg-primary-600 text-white p-12 flex-col justify-between">
         <div>
@@ -81,11 +79,11 @@ export function LoginPage() {
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Welcome back</h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">Sign in to your account</p>
 
-          {error && (
-            <div className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
-              {error}
-            </div>
-          )}
+          {/*
+           * The sign-in failure is announced, not only shown — see
+           * `AuthErrorBanner` for the live-region strategy.
+           */}
+          {error && <AuthErrorBanner>{error}</AuthErrorBanner>}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -121,7 +119,7 @@ export function LoginPage() {
             <div className="flex justify-end">
               <Link
                 to="/forgot-password"
-                className="text-sm text-primary-600 dark:text-primary-400 font-medium hover:underline"
+                className={INLINE_LINK_TOUCH_CLASS}
               >
                 Forgot password?
               </Link>
@@ -133,13 +131,14 @@ export function LoginPage() {
 
           <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
+            <Link to="/signup" className={INLINE_LINK_TOUCH_CLASS}>
               Sign up
             </Link>
           </p>
         </div>
       </div>
-    </div>
+      </MainContent>
+    </>
   );
 }
 

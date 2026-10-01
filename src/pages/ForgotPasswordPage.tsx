@@ -4,6 +4,8 @@ import { Bell } from "lucide-react";
 import { useAuth } from "@/hooks/useAuthContext";
 import { isValidEmail, NEUTRAL_RESET_MESSAGE } from "@/services/passwordResetService";
 import { getFieldErrorId } from "@/utils/fieldErrorA11y";
+import { INLINE_LINK_TOUCH_CLASS, MainContent, SkipLink } from "@/components/auth/SkipLink";
+import { AuthErrorBanner } from "@/components/auth/AuthErrorBanner";
 
 /**
  * Requests a password-reset email.
@@ -50,7 +52,9 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
+    <>
+      <SkipLink />
+      <MainContent className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-8 justify-center">
           <Bell size={24} />
@@ -82,9 +86,7 @@ export function ForgotPasswordPage() {
               </p>
 
               {error && (
-                <div className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
-                  {error}
-                </div>
+                <AuthErrorBanner>{error}</AuthErrorBanner>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -116,7 +118,7 @@ export function ForgotPasswordPage() {
               <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
                 <Link
                   to="/login"
-                  className="text-primary-600 dark:text-primary-400 font-medium hover:underline"
+                  className={INLINE_LINK_TOUCH_CLASS}
                 >
                   Back to sign in
                 </Link>
@@ -125,6 +127,7 @@ export function ForgotPasswordPage() {
           )}
         </div>
       </div>
-    </div>
+      </MainContent>
+    </>
   );
 }

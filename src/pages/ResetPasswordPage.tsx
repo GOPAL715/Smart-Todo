@@ -8,6 +8,8 @@ import {
   type PasswordField,
 } from "@/utils/passwordPolicy";
 import { getFieldErrorId } from "@/utils/fieldErrorA11y";
+import { MainContent, SkipLink } from "@/components/auth/SkipLink";
+import { AuthErrorBanner } from "@/components/auth/AuthErrorBanner";
 
 /**
  * Sets a new password after a recovery link has established a session.
@@ -63,12 +65,15 @@ export function ResetPasswordPage() {
    */
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
-        </div>
-      </div>
+      <>
+        <SkipLink />
+        <MainContent className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading...</p>
+          </div>
+        </MainContent>
+      </>
     );
   }
 
@@ -79,56 +84,64 @@ export function ResetPasswordPage() {
    */
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
-        <div className="w-full max-w-md">
-          <div className="card p-8 text-center">
-            <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-6 justify-center">
-              <Bell size={24} />
-              SmartTodo
+      <>
+        <SkipLink />
+        <MainContent className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
+          <div className="w-full max-w-md">
+            <div className="card p-8 text-center">
+              <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-6 justify-center">
+                <Bell size={24} />
+                SmartTodo
+              </div>
+              <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                This link is no longer valid
+              </h1>
+              <p className="text-neutral-500 dark:text-neutral-400 mb-6">
+                Password reset links expire after a short time and can only be used once.
+                Please request a new one.
+              </p>
+              <Link to="/forgot-password" className="btn-primary w-full inline-block text-center">
+                Request a new link
+              </Link>
             </div>
-            <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-              This link is no longer valid
-            </h1>
-            <p className="text-neutral-500 dark:text-neutral-400 mb-6">
-              Password reset links expire after a short time and can only be used once.
-              Please request a new one.
-            </p>
-            <Link to="/forgot-password" className="btn-primary w-full inline-block text-center">
-              Request a new link
-            </Link>
           </div>
-        </div>
-      </div>
+        </MainContent>
+      </>
     );
   }
 
   if (done) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
-        <div className="w-full max-w-md">
-          <div className="card p-8 text-center">
-            <CheckCircle2 size={40} className="mx-auto mb-4 text-primary-600" />
-            <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-              Password updated
-            </h1>
-            <p className="text-neutral-500 dark:text-neutral-400 mb-6">
-              Your password has been changed. You are now signed in.
-            </p>
-            <button
-              type="button"
-              className="btn-primary w-full"
-              onClick={() => navigate("/app/dashboard", { replace: true })}
-            >
-              Continue to dashboard
-            </button>
+      <>
+        <SkipLink />
+        <MainContent className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
+          <div className="w-full max-w-md">
+            <div className="card p-8 text-center">
+              <CheckCircle2 size={40} className="mx-auto mb-4 text-primary-600" />
+              <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                Password updated
+              </h1>
+              <p className="text-neutral-500 dark:text-neutral-400 mb-6">
+                Your password has been changed. You are now signed in.
+              </p>
+              <button
+                type="button"
+                className="btn-primary w-full"
+                onClick={() => navigate("/app/dashboard", { replace: true })}
+              >
+                Continue to dashboard
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+        </MainContent>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
+    <>
+      <SkipLink />
+      <MainContent className="min-h-screen flex items-center justify-center p-8 bg-neutral-50 dark:bg-neutral-950">
         <div className="w-full max-w-md">
         <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-8 justify-center">
           <Bell size={24} />
@@ -143,9 +156,7 @@ export function ResetPasswordPage() {
           </p>
 
           {error && (
-            <div className="mb-4 rounded-lg bg-error-50 dark:bg-error-950 border border-error-200 dark:border-error-800 px-4 py-3 text-sm text-error-700 dark:text-error-400 animate-fade-in">
-              {error}
-            </div>
+            <AuthErrorBanner>{error}</AuthErrorBanner>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -216,6 +227,7 @@ export function ResetPasswordPage() {
           </form>
         </div>
       </div>
-    </div>
+      </MainContent>
+    </>
   );
 }
