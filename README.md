@@ -1,6 +1,11 @@
 # SmartTodo — Smart Task Reminder
 
-A production-quality todo application with intelligent time-based task reminders. Never miss a task again — the system automatically notifies you at the right time before, during, and after your scheduled tasks.
+A production-oriented task management application with server-scheduled reminders. Tasks are
+scheduled with a date, start and end time; the backend notifies you at the right offsets before,
+during, and after each one, and the day is viewable on a calendar in your own timezone.
+
+**Live production app:** https://smart-todo-murex.vercel.app
+**Release status and verification evidence:** [Release readiness](#release-readiness)
 
 ## Features
 
@@ -438,7 +443,8 @@ pointed at production. See
 
 ### Verified baseline
 
-The last full verification of this commit recorded:
+**Automated verification** — runs on every push and pull request, with no access to
+production:
 
 | Gate | Result |
 |---|---|
@@ -446,12 +452,22 @@ The last full verification of this commit recorded:
 | Type check | pass |
 | Lint | pass |
 | Production build | pass |
-| Database tests (pgTAP) | pass (CI #19, disposable local database) |
-| SmartTodo CI | pass (CI #19) |
-| Production health monitor | pass — 9 of 9 checks `PASS` |
+| Database tests (pgTAP) | pass — 6 suites, 86 assertions, disposable local database |
+| SmartTodo CI | pass |
 
-These are the numbers observed on the commit named in
-[Release readiness](#release-readiness) below, not a projection.
+**Production verification** — performed manually against the live application, and
+therefore *not* covered by the gates above:
+
+| Area | Result |
+|---|---|
+| Production health monitor | 9 of 9 checks `PASS` |
+| Authentication, logout, protected routes | verified in a real browser |
+| Task CRUD, search, filtering, sorting, calendar | verified in a real browser |
+| Accessibility (structure, keyboard, landmarks) | verified in a real browser |
+
+The six areas listed under
+[Known coverage limitations](#known-coverage-limitations) were not exercised and are
+not implied by either table.
 
 ## Environment Variables
 
@@ -524,9 +540,15 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 | | |
 |---|---|
 | **Production** | https://smart-todo-murex.vercel.app |
-| **Verified commit** | `79f30d461d73ee0287ca1acba42710127ff0c203` |
+| **Application behaviour audited at** | `79f30d461d73ee0287ca1acba42710127ff0c203` |
+| **Repository HEAD** | `b939464` — documentation only |
 | **Automated verification** | 628/628 unit tests, typecheck, lint, build, pgTAP, CI — all pass |
-| **Production verification** | Health monitor 9/9 `PASS`; authenticated acceptance and accessibility regression completed |
+| **Production verification** | Health monitor 9/9 `PASS`; authenticated acceptance, accessibility regression, and a final production-readiness audit completed |
+
+The two commits differ only by a documentation update: no application code, schema,
+workflow, or configuration changed after `79f30d4`. The production acceptance and
+accessibility testing described here was performed against `79f30d4`; `b939464` was not
+separately re-audited, because it carries no behavioural difference.
 
 ### Known coverage limitations
 
