@@ -24,7 +24,13 @@ A production-quality todo application with intelligent time-based task reminders
 - **Timezone Handling** — All times stored as UTC (timestamptz); displayed in user timezone (default: Asia/Kolkata)
 - **Responsive Design** — Works on desktop, tablet, and mobile
 - **Dark Mode** — Light, dark, and system-following themes; persists across sessions
+- **Accessibility** — Skip-to-content links and a single `<main>` landmark on both the
+  authenticated shell and every public authentication page; logical keyboard order with visible
+  focus; form errors linked to their inputs via `aria-invalid`/`aria-describedby`; a
+  non-modal notification disclosure with Escape-to-close and focus restoration
 - **PWA** — Installable as a standalone app with a precached app shell; authenticated API data is not runtime-cached
+- **Production Monitoring** — A read-only health check runs against the live database on a 15-minute
+  schedule and via manual dispatch, and fails the build when any check reports `FAIL`
 
 ## Architecture
 
@@ -214,6 +220,16 @@ Access control is enforced in the database, not in the interface:
 - User-facing failures show fixed messages; provider and database error detail goes to
   the browser console only, so sign-in, sign-up, and sharing cannot be used to discover
   which email addresses have accounts.
+- **Route protection** — every `/app/*` page is rendered behind a client-side route guard,
+  so an unauthenticated visit is redirected to `/login` rather than rendered. This is a
+  usability boundary, not the security boundary: the database policies above are what
+  actually withhold data, and they hold independently of the guard.
+- **Session lifetime** — signing out clears the stored session so the application no
+  longer holds a usable credential, and protected pages redirect again.
+- **Production monitoring credentials** — the health-check workflow reaches the database
+  with server-side credentials held in repository secrets. The browser bundle contains
+  only the publishable/anon project key; no service-role key, database connection string,
+  or scheduler token is shipped to the client.
 
 ## API (via Supabase)
 
@@ -420,6 +436,23 @@ The pgTAP suites in `supabase/tests/` (6 suites, 86 assertions) run in CI agains
 pointed at production. See
 [`supabase/ops/RUNBOOK.md`](supabase/ops/RUNBOOK.md#7-pgtap-database-tests).
 
+### Verified baseline
+
+The last full verification of this commit recorded:
+
+| Gate | Result |
+|---|---|
+| Unit tests (Vitest) | **628 passed / 628**, across 35 test files |
+| Type check | pass |
+| Lint | pass |
+| Production build | pass |
+| Database tests (pgTAP) | pass (CI #19, disposable local database) |
+| SmartTodo CI | pass (CI #19) |
+| Production health monitor | pass — 9 of 9 checks `PASS` |
+
+These are the numbers observed on the commit named in
+[Release readiness](#release-readiness) below, not a projection.
+
 ## Environment Variables
 
 Only two variables are required, and both are browser-safe:
@@ -473,6 +506,51 @@ repository. In the Supabase dashboard under **Authentication → Providers → E
 - Phases 18–20 — Notification-panel accessibility (correct non-modal semantics,
   focus management, Escape and focus restoration), a single user-facing error
   taxonomy, and per-page batched tag lookups that stop re-sending ids already loaded
+- Phases 21–22 — Form-error accessibility plumbing (`aria-invalid` + `aria-describedby`
+  derived from one shared helper) and a review-panel reference implementation
+- Phase 23 — Production health monitoring: the read-only health check was wired into a
+  scheduled workflow that executes on the live database every 15 minutes
+- Phase 23N — Two reliability defects found by authenticated production testing and fixed:
+  the health gate's direct-execution guard now uses `pathToFileURL` so it works on Linux
+  runners (it previously skipped its own CLI and could report an unhealthy database as
+  healthy), and moving a task's start time past the default end time now adjusts that end
+  time instead of failing to save with a misleading cross-midnight message
+- Phase 25 — Public authentication pages gained the same skip link and main landmark the
+  authenticated shell already used, their failure banner is now announced to assistive
+  technology, and inline authentication links have a larger hit area
+
+## Release readiness
+
+| | |
+|---|---|
+| **Production** | https://smart-todo-murex.vercel.app |
+| **Verified commit** | `79f30d461d73ee0287ca1acba42710127ff0c203` |
+| **Automated verification** | 628/628 unit tests, typecheck, lint, build, pgTAP, CI — all pass |
+| **Production verification** | Health monitor 9/9 `PASS`; authenticated acceptance and accessibility regression completed |
+
+### Known coverage limitations
+
+These areas were **not** exercised end-to-end and are recorded here as coverage
+limitations. None was classified as a product defect, and none should be read as
+"fully tested":
+
+- **Task pagination with a large account** — "Load more" behaviour above 100 records was
+  not exercised in production; creating 100+ records purely to observe it was judged
+  unjustified. The paging code is unit-tested, and the page size is a single constant.
+- **Password-reset email roundtrip** — no controlled mailbox was available for the test
+  account, so delivery, the recovery link, and the reset itself were not completed. The
+  reset page's invalid/expired-link handling was verified.
+- **Screen-reader announcement** — no screen reader was available. Accessibility was
+  verified structurally (roles, landmarks, relationships, keyboard order) rather than by
+  hearing it.
+- **Reminder delivery lifecycle** — reminders save, persist and display correctly, but a
+  reminder was not observed firing end-to-end inside the test window. The scheduler
+  backend itself is covered by the health monitor's `cron_job` and `recent_runs` checks.
+- **Notification pagination with populated data** — the test account had no
+  notifications, so "Load more" in the notification centre was not observed.
+- **Fresh RLS re-audit** — the anonymous-access posture was verified when RLS was
+  introduced and reconfirmed during auditing, but no new full RLS review was performed
+  for this release.
 
 ## Blocked
 
