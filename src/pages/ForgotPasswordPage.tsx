@@ -58,7 +58,7 @@ export function ForgotPasswordPage() {
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-8 justify-center">
           <Bell size={24} />
-          SmartTodo
+          Smart Todo Task Management
         </div>
         <div className="card p-8">
           {sent ? (

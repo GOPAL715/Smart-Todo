@@ -91,7 +91,7 @@ export function ResetPasswordPage() {
             <div className="card p-8 text-center">
               <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-6 justify-center">
                 <Bell size={24} />
-                SmartTodo
+                Smart Todo Task Management
               </div>
               <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                 This link is no longer valid
@@ -145,7 +145,7 @@ export function ResetPasswordPage() {
         <div className="w-full max-w-md">
         <div className="flex items-center gap-2 text-xl font-semibold text-primary-600 mb-8 justify-center">
           <Bell size={24} />
-          SmartTodo
+          Smart Todo Task Management
         </div>
         <div className="card p-8">
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">

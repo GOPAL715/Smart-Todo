@@ -1,4 +1,4 @@
-# SmartTodo Dependency Maintenance Report
+# Smart Todo Task Management Dependency Maintenance Report
 
 This report is intentionally separate from the production correction phase. No dependency versions were changed, no `npm audit fix` was run, and no upgrades were applied.
 

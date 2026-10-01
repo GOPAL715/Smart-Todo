@@ -1,7 +1,7 @@
 {
-  "name": "smart-todo",
+  "name": "smart-todo-task-management",
   "private": true,
-  "description": "SmartTodo — task management with reminders, sharing, and recurring schedules, backed by Supabase.",
+  "description": "Smart Todo Task Management — task management with reminders, sharing, and recurring schedules, backed by Supabase.",
   "version": "0.0.0",
   "type": "module",
   "scripts": {

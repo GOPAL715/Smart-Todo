@@ -1,4 +1,4 @@
-# SmartTodo — Smart Task Reminder
+# Smart Todo Task Management
 
 A production-oriented task management application with server-scheduled reminders. Tasks are
 scheduled with a date, start and end time; the backend notifies you at the right offsets before,

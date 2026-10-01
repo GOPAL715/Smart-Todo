@@ -48,7 +48,7 @@ export function LoginPage() {
         <div>
           <div className="flex items-center gap-2 text-xl font-semibold">
             <Bell size={24} />
-            SmartTodo
+            Smart Todo Task Management
           </div>
         </div>
         <div className="space-y-6">
@@ -66,7 +66,7 @@ export function LoginPage() {
             <FeatureRow icon={<CheckCircle2 size={20} />} text="Overdue detection" />
           </div>
         </div>
-        <p className="text-primary-200 text-sm">2026 SmartTodo</p>
+        <p className="text-primary-200 text-sm">2026 Smart Todo Task Management</p>
       </div>
 
       {/* Right panel - form */}
@@ -74,7 +74,7 @@ export function LoginPage() {
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2 text-xl font-semibold text-primary-600 mb-8">
             <Bell size={24} />
-            SmartTodo
+            Smart Todo Task Management
           </div>
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Welcome back</h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">Sign in to your account</p>

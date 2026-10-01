@@ -205,7 +205,7 @@ export function AppLayout() {
         <div className="p-6 border-b border-neutral-200 dark:border-neutral-800">
           <div className="flex items-center gap-2 text-lg font-semibold text-primary-600">
             <Bell size={22} />
-            SmartTodo
+            Smart Todo Task Management
           </div>
         </div>
 

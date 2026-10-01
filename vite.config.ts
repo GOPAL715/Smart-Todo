@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['pwa-icon-192.png', 'pwa-icon-512.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'SmartTodo — Task Reminder',
-        short_name: 'SmartTodo',
+        name: 'Smart Todo Task Management',
+        short_name: 'Smart Todo',
         description: 'Smart task management with reminders, sharing, and recurring tasks.',
         theme_color: '#2563eb',
         background_color: '#f8fafc',

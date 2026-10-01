@@ -1,4 +1,4 @@
-# SmartTodo — Production Operations Runbook
+# Smart Todo Task Management — Production Operations Runbook
 
 Operational procedures for the reminder scheduler, production verification, and
 recovery. Nothing here is required to build or run the app locally.

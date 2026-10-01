@@ -70,7 +70,7 @@ export interface TaskScheduleUpdate {
  * Two invariants are enforced here rather than at the database, because the
  * failure is opaque when it reaches Postgres:
  *
- * 1. **Cross-midnight tasks are not supported.** SmartTodo has no notion of an
+ * 1. **Cross-midnight tasks are not supported.** Smart Todo Task Management has no notion of an
  *    end on the following day, so `23:00 -> 01:00` cannot be represented. The
  *    schema actively forbids it (`CHECK (end_datetime > start_datetime)` and
  *    `CHECK (duration_minutes > 0)` from migration 023), so this is an existing
