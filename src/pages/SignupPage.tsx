@@ -6,7 +6,8 @@ import { getPasswordStrength, validateNewPassword } from "@/utils/passwordPolicy
 import { getFieldErrorId } from "@/utils/fieldErrorA11y";
 import { INLINE_LINK_TOUCH_CLASS, MainContent, SkipLink } from "@/components/auth/SkipLink";
 import { AuthErrorBanner } from "@/components/auth/AuthErrorBanner";
-import { Bell } from "lucide-react";
+import { CheckEmailNotice, CHECK_EMAIL_HEADING } from "@/components/auth/CheckEmailNotice";
+import { Bell, MailCheck } from "lucide-react";
 
 export function SignupPage() {
   const { signUp } = useAuth();
@@ -19,6 +20,13 @@ export function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showPasswordRequirements, setShowPasswordRequirements] = useState(false);
+  /*
+   * Set once Supabase accepts the signup but issues no session, which is what a
+   * project with email confirmation enabled does. The user is not signed in at
+   * that point, so the form is replaced by the check-your-email state instead of
+   * navigating into the authenticated app.
+   */
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
 
   const strength = getPasswordStrength(password);
 
@@ -49,7 +57,11 @@ export function SignupPage() {
 
     setLoading(true);
     try {
-      await signUp(name.trim(), email.trim().toLowerCase(), password);
+      const result = await signUp(name.trim(), email.trim().toLowerCase(), password);
+      if (result.requiresEmailVerification) {
+        setAwaitingVerification(true);
+        return;
+      }
       navigate("/app/dashboard");
     } catch (err) {
       setError(getAuthErrorMessage(err));
@@ -68,6 +80,24 @@ export function SignupPage() {
           Smart Todo Task Management
         </div>
         <div className="card p-8">
+          {awaitingVerification ? (
+            <>
+              <div className="flex items-center gap-2 text-primary-600 mb-4">
+                <MailCheck size={24} />
+                <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
+                  {CHECK_EMAIL_HEADING}
+                </h1>
+              </div>
+              <CheckEmailNotice />
+              <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                Already confirmed?{" "}
+                <Link to="/login" className={INLINE_LINK_TOUCH_CLASS}>
+                  Sign in
+                </Link>
+              </p>
+            </>
+          ) : (
+            <>
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Create account</h1>
           <p className="text-neutral-500 dark:text-neutral-400 mb-8">Start managing your tasks smartly</p>
 
@@ -174,6 +204,8 @@ export function SignupPage() {
               Sign in
             </Link>
           </p>
+            </>
+          )}
         </div>
       </div>
       </MainContent>

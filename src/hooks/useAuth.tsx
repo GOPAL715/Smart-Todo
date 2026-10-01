@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/services/supabase";
 import { clearAuthenticatedCaches } from "@/utils/pwaCache";
 import { getAuthErrorMessage } from "@/utils/authErrors";
+import { requiresEmailVerification, type SignUpResult } from "@/utils/signUpFlow";
 import {
   fetchProfile,
   nextProfileState,
@@ -137,14 +138,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw new Error(getAuthErrorMessage(error));
   }, []);
 
-  const signUp = useCallback(async (name: string, email: string, password: string) => {
+  const signUp = useCallback(async (name: string, email: string, password: string): Promise<SignUpResult> => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { name } },
     });
     if (error) throw new Error(getAuthErrorMessage(error));
-    if (data.user) await loadProfile(data.user.id);
+
+    /*
+     * Which of Supabase's two documented outcomes occurred is reported to the
+     * caller instead of being discarded.
+     *
+     * With email confirmation enabled `session` is null and the caller must
+     * show the check-your-email state; navigating to the dashboard instead
+     * would bounce an unauthenticated visitor to /login. With confirmation
+     * disabled a session is returned and the caller navigates as before, so
+     * both project configurations keep working.
+     *
+     * The profile is only read when a session actually exists. Reading it
+     * without one is denied by RLS anyway, and the row is read again on the
+     * auth-state change once the verification link is followed.
+     */
+    const needsVerification = requiresEmailVerification(data.session);
+    if (!needsVerification && data.user) await loadProfile(data.user.id);
+
+    return { requiresEmailVerification: needsVerification };
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {

@@ -6,6 +6,7 @@ import type {
   ResetRequestResult,
   UpdatePasswordResult,
 } from "@/services/passwordResetService";
+import type { SignUpResult } from "@/utils/signUpFlow";
 
 export interface AuthContextValue {
   user: User | null;
@@ -33,7 +34,16 @@ export interface AuthContextValue {
    */
   isRecoverySession: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
+  /**
+   * Creates an account.
+   *
+   * Resolves with which of Supabase's two outcomes occurred rather than always
+   * implying success: when the project requires email confirmation no session is
+   * issued yet, and the caller must show the check-your-email state instead of
+   * navigating into the authenticated app. Errors are still thrown, already
+   * reduced to neutral copy by `getAuthErrorMessage`.
+   */
+  signUp: (name: string, email: string, password: string) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   /**
    * Emails a recovery link to `email`.

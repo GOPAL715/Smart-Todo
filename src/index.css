@@ -9,6 +9,30 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /*
+   * Native date/time picker popups follow the OS/browser UI palette, which is
+   * chosen from the `color-scheme` CSS property rather than from any class on
+   * the page. The app themes itself with a `dark` class on <html> (Tailwind's
+   * `darkMode: 'class'`), so without this the Chromium date and time pickers
+   * kept rendering their light palette while the rest of the page was dark.
+   *
+   * This is the standards-based fix: `color-scheme: dark` tells the UA that the
+   * page opts into a dark UI, and the popup renders accordingly. It is set on
+   * the root element and toggled by the *same* `dark` class the ThemeProvider
+   * already applies, so it cannot drift from the app's own theme state and needs
+   * no JavaScript, no duplicate listener, and no third-party picker.
+   *
+   * Only the declared scheme is affected. The inputs keep using the `.input`
+   * component classes for their own background, border, and text, so nothing
+   * about the field itself changes appearance.
+   */
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-neutral-50 text-neutral-900 font-sans dark:bg-neutral-950 dark:text-neutral-100;
   }
